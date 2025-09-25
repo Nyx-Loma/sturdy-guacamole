@@ -24,3 +24,35 @@ Wraps libsignal-client primitives, key serialization, and protocol helpers for X
 
 Detailed threat modeling and API docs will follow as the implementation matures.
 
+## Usage Examples
+
+### Generating a Session
+```ts
+import { Session } from '@arqivo/crypto';
+
+const alice = await Session.createSessionKeyPair();
+const bob = await Session.createSessionKeyPair();
+
+const aliceSecrets = await Session.performHandshake(alice.secretKey, bob.publicKey);
+const bobSecrets = await Session.performHandshake(bob.secretKey, alice.publicKey);
+```
+
+### Encrypting a Message Envelope
+```ts
+import { Envelope } from '@arqivo/crypto';
+
+const message = new TextEncoder().encode('hello');
+const envelope = await Envelope.seal(aliceSecrets.chainKey, message);
+const decrypted = await Envelope.open(bobSecrets.chainKey, envelope);
+```
+
+### Signing and Verifying
+```ts
+import { Asymmetric } from '@arqivo/crypto';
+
+const { publicKey, secretKey } = await Asymmetric.generateSigningKeyPair();
+const message = new TextEncoder().encode('sign me');
+const signature = await Asymmetric.sign(message, secretKey);
+const valid = await Asymmetric.verify(message, signature, publicKey);
+```
+

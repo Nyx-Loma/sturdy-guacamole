@@ -29,5 +29,12 @@ describe('crypto provider', () => {
     const valid = await provider.verify(publicKey, message, signature);
     expect(valid).toBe(true);
   });
+
+  it('produces unique random material', async () => {
+    const provider = createCryptoProvider();
+    const buf1 = await provider.randomBytes(32);
+    const buf2 = await provider.randomBytes(32);
+    expect(buf1).not.toEqual(buf2);
+  });
 });
 

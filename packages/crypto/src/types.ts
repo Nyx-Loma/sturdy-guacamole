@@ -46,6 +46,11 @@ export interface SessionSecrets {
   chainKey: SymmetricKey;
 }
 
+export interface RatchetState {
+  chainKey: SymmetricKey;
+  counter: number;
+}
+
 export const SYMMETRIC_KEY_BYTES = 32;
 export const NONCE_BYTES = 24;
 export const SIGNING_PUBLIC_KEY_BYTES = 32;
