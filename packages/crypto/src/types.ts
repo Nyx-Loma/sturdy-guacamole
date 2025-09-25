@@ -51,6 +51,12 @@ export interface RatchetState {
   counter: number;
 }
 
+export interface RatchetHeader {
+  publicKey: PublicKey;
+  counter: number;
+  previousCounter: number;
+}
+
 export const SYMMETRIC_KEY_BYTES = 32;
 export const NONCE_BYTES = 24;
 export const SIGNING_PUBLIC_KEY_BYTES = 32;
