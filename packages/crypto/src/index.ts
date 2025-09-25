@@ -6,5 +6,4 @@ export * as Asymmetric from './asymmetric';
 export * as Random from './random';
 export * as Session from './session';
 export * as Envelope from './envelope';
-export * as Ratchet from './ratchet';
 
