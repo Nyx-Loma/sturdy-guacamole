@@ -4,7 +4,8 @@ import type { SocketStream } from '@fastify/websocket';
 import type { FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { loadConfig } from '@arqivo/config';
-import { WebSocketHub, createInMemoryResumeStore, createRedisResumeStore, createRedisStreamQueue, createQueueConsumer } from '@arqivo/transport';
+import { WebSocketHub, createInMemoryResumeStore, createRedisResumeStore, createRedisStreamQueue, createQueueConsumer, redactToken } from '@arqivo/transport';
+import { RateLimiterMemory } from 'rate-limiter-flexible';
 import { collectDefaultMetrics } from 'prom-client';
 import Redis from 'ioredis';
 
@@ -26,8 +27,21 @@ export async function bootstrapServer() {
 
   const heartbeatIntervalMs = process.env.NODE_ENV === 'test' ? 1_000 : 60_000;
 
+  const connectionLimiter = new RateLimiterMemory({
+    points: config.WS_RATE_LIMIT_CONNECTIONS_PER_MIN,
+    duration: 60,
+    blockDuration: 60
+  });
+
+  const messageLimiter = new RateLimiterMemory({
+    points: config.WS_RATE_LIMIT_MESSAGES_PER_MIN,
+    duration: 60,
+    blockDuration: 60
+  });
+
   const hub = new WebSocketHub({
     heartbeatIntervalMs,
+    logger: fastify.log,
     authenticate: async ({ requestHeaders, clientId }) => {
       const header = requestHeaders.authorization ?? requestHeaders.Authorization;
       const token = Array.isArray(header) ? header[0] : header;
@@ -52,7 +66,9 @@ export async function bootstrapServer() {
     metricsRegistry: undefined,
     onMetrics: (event) => {
       fastify.log.debug({ event }, 'ws_metric');
-    }
+    },
+    rateLimiterFactory: () => connectionLimiter,
+    messageRateLimiterFactory: () => messageLimiter
   });
 
   collectDefaultMetrics({ register: hub.getMetricsRegistry(), prefix: 'arqivo_' });
@@ -104,7 +120,7 @@ export async function bootstrapServer() {
         return;
       }
 
-      fastify.log.info({ clientId, resumeToken: result.resumeToken }, 'websocket connected');
+      fastify.log.info({ clientId, resumeToken: redactToken(result.resumeToken) }, 'websocket connected');
 
       socket.send(
         JSON.stringify({
@@ -121,7 +137,7 @@ export async function bootstrapServer() {
         fastify.log.info({ clientId, code, reason: reason.toString() }, 'websocket closed');
       });
     })().catch((error) => {
-      fastify.log.error({ clientId, err: error }, 'websocket register failed');
+      fastify.log.error({ clientId, err: { name: (error as Error)?.name, message: (error as Error)?.message } }, 'websocket register failed');
       socket.close(1011, 'internal_error');
     });
   });

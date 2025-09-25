@@ -13,6 +13,11 @@ export class Metrics {
   private readonly framesSent: Counter<string>;
   private readonly bufferedBytes: Gauge<string>;
   private readonly ackLatency: Histogram<string>;
+  private readonly replayStart: Counter<string>;
+  private readonly replayComplete: Counter<string>;
+  private readonly replayBatches: Counter<string>;
+  private readonly replayBackpressure: Counter<string>;
+  private readonly pingLatency: Histogram<string>;
   private readonly fallbackEmitter?: (event: MetricsEvent) => void;
 
   constructor(registry?: Registry, fallback?: (event: MetricsEvent) => void) {
@@ -89,6 +94,42 @@ export class Metrics {
       labelNames: ['accountId', 'deviceId'],
       buckets: [1, 2, 5, 10, 20, 50, 100, 250, 500]
     });
+
+    this.replayStart = new Counter({
+      name: 'ws_replay_start_total',
+      help: 'Replay sessions initiated',
+      registers: [this.registry],
+      labelNames: ['accountId', 'deviceId']
+    });
+
+    this.replayComplete = new Counter({
+      name: 'ws_replay_complete_total',
+      help: 'Replay sessions completed',
+      registers: [this.registry],
+      labelNames: ['accountId', 'deviceId']
+    });
+
+    this.replayBatches = new Counter({
+      name: 'ws_replay_batches_total',
+      help: 'Replay batches sent',
+      registers: [this.registry],
+      labelNames: ['accountId', 'deviceId']
+    });
+
+    this.replayBackpressure = new Counter({
+      name: 'ws_replay_backpressure_total',
+      help: 'Replay batches hitting backpressure',
+      registers: [this.registry],
+      labelNames: ['accountId', 'deviceId']
+    });
+
+    this.pingLatency = new Histogram({
+      name: 'ws_ping_latency_ms',
+      help: 'Measured ping round-trip latency',
+      registers: [this.registry],
+      labelNames: ['accountId', 'deviceId'],
+      buckets: [10, 25, 50, 100, 250, 500, 1000]
+    });
   }
 
   getRegistry() {
@@ -128,6 +169,25 @@ export class Metrics {
         break;
       case 'ws_frame_sent':
         this.framesSent.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        break;
+      case 'ws_replay_start':
+        this.replayStart.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        break;
+      case 'ws_replay_batch_sent':
+        this.replayBatches.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc(event.batchSize ?? 0);
+        break;
+      case 'ws_replay_backpressure_hits':
+        this.replayBackpressure.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc(event.batchSize ?? 1);
+        break;
+      case 'ws_replay_complete':
+        this.replayComplete.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        break;
+      case 'ws_ping_latency':
+        if (event.pingLatencyMs !== undefined) {
+          this.pingLatency
+            .labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown')
+            .observe(event.pingLatencyMs);
+        }
         break;
     }
   }

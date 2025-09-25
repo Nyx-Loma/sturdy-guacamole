@@ -9,7 +9,7 @@ export interface ConnectionOptions {
   resumeToken: string;
   resumeTokenExpiresAt: number;
   maxQueueLength: number;
-  send: (socket: WebSocket, payload: string | Buffer) => void;
+  send: (socket: WebSocket, payload: string | Buffer, callback?: (error?: Error | null) => void) => void | Promise<void>;
   emitMetrics?: (event: MetricsEvent) => void;
 }
 
@@ -24,9 +24,10 @@ export class Connection {
 
   lastSeenAt: number;
   pingTimeout?: NodeJS.Timeout;
+  lastPingSentAt?: number;
 
   private readonly maxQueueLength: number;
-  private readonly sendImpl: (socket: WebSocket, payload: string | Buffer) => void;
+  private readonly sendImpl: (socket: WebSocket, payload: string | Buffer, callback?: (error?: Error | null) => void) => void | Promise<void>;
   private readonly emitMetrics?: (event: MetricsEvent) => void;
 
   private readonly sendQueue: Array<string | Buffer> = [];
@@ -50,27 +51,32 @@ export class Connection {
     this.lastSeenAt = Date.now();
   }
 
-  enqueue(payload: string | Buffer) {
-    console.log('connection.enqueue', this.id, typeof payload, typeof payload === 'string' ? payload.slice(0, 80) : '[buffer]');
+  async enqueue(payload: string | Buffer) {
     if (this.sendQueue.length >= this.maxQueueLength) {
       this.close(1013, 'overloaded');
       return;
     }
     this.sendQueue.push(payload);
     if (!this.sending) {
-      this.flush();
+      await this.flush();
     }
   }
 
-  flush() {
+  async flush() {
     if (this.sending) return;
     this.sending = true;
     while (this.sendQueue.length > 0) {
       const payload = this.sendQueue.shift();
       if (!payload) break;
       try {
-        console.log('connection.flush sending', this.id, typeof payload === 'string' ? payload.slice(0, 80) : '[buffer]');
-        this.sendImpl(this.socket, payload);
+        const maybePromise = this.sendImpl(this.socket, payload, (error) => {
+          if (error) {
+            this.close(1011, 'send_failure');
+          }
+        });
+        if (maybePromise && typeof (maybePromise as Promise<void>).then === 'function') {
+          await maybePromise;
+        }
         this.emitMetrics?.({
           type: 'ws_frame_sent',
           clientId: this.id,
@@ -86,7 +92,6 @@ export class Connection {
   }
 
   close(code: number, reason: string) {
-    console.log('connection.close', this.id, code, reason);
     this.socket.close(code, reason);
     this.emitMetrics?.({
       type: 'ws_closed',
@@ -99,6 +104,6 @@ export class Connection {
   }
 
   ack(id: string, ack: AckMessage) {
-    this.enqueue(JSON.stringify(ack));
+    void this.enqueue(JSON.stringify(ack));
   }
 }

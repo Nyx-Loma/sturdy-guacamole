@@ -15,4 +15,5 @@ export { createInMemoryResumeStore, createRedisResumeStore } from './resumeStore
 export { createQueueConsumer, createRedisStreamQueue } from './queue';
 export type { Queue, QueueMessage, QueueConsumerOptions, RedisQueueOptions } from './queue';
 export { persistConnectionSnapshot } from './websocketHub/snapshot';
+export { redactToken, hashToken, logWithContext, sanitizeError } from './logging';
 

@@ -5,7 +5,9 @@ import { WebSocketHub } from '../src/index';
 
 const createSocket = () => {
   const socket: Partial<WebSocket> = {
-    send: vi.fn(),
+    send: vi.fn((payload: string, callback?: (error?: Error | null) => void) => {
+      callback?.();
+    }),
     close: vi.fn(),
     ping: vi.fn(),
     terminate: vi.fn(),
@@ -38,11 +40,12 @@ describe('WebSocketHub', () => {
     await hub.handleMessage(
       'client-1',
       Buffer.from(
-        JSON.stringify({ v: 1, id: '9d7b1b5c-5e15-4b92-a2e2-7f0d6ffd1fd1', type: 'msg', payload: {}, size: 42 })
+        JSON.stringify({ v: 1, id: '9d7b1b5c-5e15-4b92-a2e2-7f0d6ffd1fd1', type: 'msg', payload: { seq: 0 }, size: 42 })
       )
     );
     expect(socket.send).toHaveBeenCalledWith(
-      JSON.stringify({ type: 'ack', id: '9d7b1b5c-5e15-4b92-a2e2-7f0d6ffd1fd1', status: 'accepted', seq: 1 })
+      JSON.stringify({ type: 'ack', id: '9d7b1b5c-5e15-4b92-a2e2-7f0d6ffd1fd1', status: 'accepted', seq: 1 }),
+      expect.any(Function)
     );
 
     await hub.handleMessage('client-1', Buffer.from('invalid-json'));

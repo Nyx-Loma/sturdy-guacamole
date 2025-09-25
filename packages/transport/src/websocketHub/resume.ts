@@ -2,12 +2,15 @@ import type { HubState } from './state';
 import type { MessageEnvelope } from '../schemas';
 import { MessageEnvelopeSchema, ResumePayloadSchema } from '../schemas';
 import type { ResumeResult } from '../types';
-import { randomUUID } from 'node:crypto';
+import { logWithContext, redactToken, sanitizeError } from '../logging';
 
 export async function handleResume(connection: ReturnType<HubState['connections']['get']>, envelope: MessageEnvelope, state: HubState): Promise<ResumeResult> {
   const validation = MessageEnvelopeSchema.safeParse(envelope);
   if (!validation.success) {
-    console.error('handleResume invalid envelope', { clientId: connection.id, envelope, error: validation.error });
+    logWithContext(state.options.logger, 'warn', 'resume_invalid_envelope', {
+      clientId: connection.id,
+      error: sanitizeError(validation.error)
+    });
     connection.close(1002, 'invalid_resume');
     return { replayCount: 0, batches: 0 };
   }
@@ -16,26 +19,39 @@ export async function handleResume(connection: ReturnType<HubState['connections'
   try {
     payload = ResumePayloadSchema.parse(envelope.payload);
   } catch (error) {
-    console.error('handleResume invalid payload', { clientId: connection.id, payload: envelope.payload, error });
+    logWithContext(state.options.logger, 'warn', 'resume_invalid_payload', {
+      clientId: connection.id,
+      error: sanitizeError(error)
+    });
     connection.close(1002, 'invalid_resume');
     return { replayCount: 0, batches: 0 };
   }
 
   const now = Date.now();
   if (payload.resumeToken !== connection.resumeToken) {
-    console.log('handleResume loading persisted state', { token: payload.resumeToken, clientId: connection.id });
     const persisted = await state.loadResumeState(payload.resumeToken);
-    console.log('handleResume persisted state result', { token: payload.resumeToken, persistedExists: Boolean(persisted) });
     if (!persisted) {
+      logWithContext(state.options.logger, 'warn', 'resume_missing_token', {
+        clientId: connection.id,
+        resumeToken: redactToken(payload.resumeToken)
+      });
       connection.close(1008, 'invalid_token');
       return { replayCount: 0, batches: 0 };
     }
     if (persisted.expiresAt < now) {
       await state.dropResumeState(payload.resumeToken);
+      logWithContext(state.options.logger, 'info', 'resume_expired_token', {
+        clientId: connection.id,
+        resumeToken: redactToken(payload.resumeToken)
+      });
       connection.close(1008, 'expired_token');
       return { replayCount: 0, batches: 0 };
     }
     if (persisted.accountId !== connection.accountId || persisted.deviceId !== connection.deviceId) {
+      logWithContext(state.options.logger, 'warn', 'resume_token_conflict', {
+        clientId: connection.id,
+        resumeToken: redactToken(payload.resumeToken)
+      });
       connection.close(1008, 'token_conflict');
       return { replayCount: 0, batches: 0 };
     }
@@ -59,8 +75,7 @@ export async function handleResume(connection: ReturnType<HubState['connections'
     expiresInMs: expiresAt - now,
     resumeToken: rotatedToken
   });
-  console.log('handleResume sending resume_ack', resumeAck);
-  state.safeSend(connection, resumeAck);
+  await state.safeSend(connection, resumeAck);
 
   const framesToReplay = connection.outboundLog.filter((frame) => frame.seq >= fromSeq);
   const batches = Math.ceil(framesToReplay.length / state.maxReplayBatchSize) || 0;
@@ -77,19 +92,34 @@ export async function handleResume(connection: ReturnType<HubState['connections'
 
   for (let i = 0; i < framesToReplay.length; i += state.maxReplayBatchSize) {
     const batch = framesToReplay.slice(i, i + state.maxReplayBatchSize);
+    let sentCount = 0;
     for (const frame of batch) {
-      if (!state.safeSendWithBackpressure(connection, frame.payload)) {
+      const sent = await state.safeSendWithBackpressure(connection, frame.payload);
+      if (!sent) {
         break;
       }
       replayCount += 1;
+      sentCount += 1;
     }
-    state.metrics.record({
-      type: 'ws_replay_batch_sent',
-      clientId: connection.id,
-      accountId: connection.accountId,
-      deviceId: connection.deviceId,
-      batchSize: batch.length
-    });
+    if (sentCount > 0) {
+      state.metrics.record({
+        type: 'ws_replay_batch_sent',
+        clientId: connection.id,
+        accountId: connection.accountId,
+        deviceId: connection.deviceId,
+        batchSize: sentCount
+      });
+    }
+    if (sentCount < batch.length) {
+      state.metrics.record({
+        type: 'ws_replay_backpressure_hits',
+        clientId: connection.id,
+        accountId: connection.accountId,
+        deviceId: connection.deviceId,
+        batchSize: batch.length - sentCount
+      });
+      break;
+    }
   }
 
   await state.persistSnapshot(connection);
@@ -100,6 +130,14 @@ export async function handleResume(connection: ReturnType<HubState['connections'
     accountId: connection.accountId,
     deviceId: connection.deviceId,
     resumeTokenRedacted: redact(rotatedToken)
+  });
+  logWithContext(state.options.logger, 'info', 'resume_complete', {
+    clientId: connection.id,
+    accountId: connection.accountId,
+    deviceId: connection.deviceId,
+    replayCount,
+    batches,
+    resumeToken: redactToken(rotatedToken)
   });
   state.metrics.record({
     type: 'ws_replay_complete',

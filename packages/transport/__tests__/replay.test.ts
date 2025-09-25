@@ -24,7 +24,6 @@ const createMockSocket = () => {
   let bufferedAmount = 0;
   const sendMock: MockSend = vi.fn((data: string | Buffer, cb?: () => void) => {
     const payload = typeof data === 'string' ? data : data.toString();
-    console.log('mock socket send', payload);
     bufferedAmount += payload.length;
     sent.push(payload);
     cb?.();
@@ -136,7 +135,7 @@ describe('queue replay', () => {
     expect(registerInitial).not.toBeNull();
     const initialToken = registerInitial!.resumeToken;
 
-    const { queue, publish, consumed } = createInMemoryQueue();
+    const { queue, publish } = createInMemoryQueue();
     await createQueueConsumer({
       hub,
       queue,
@@ -154,11 +153,7 @@ describe('queue replay', () => {
     }
 
     await flushAsync();
-    console.log('queue consumed count', consumed.length);
-    console.log('after flush outbound length', resumeStore.load ? (await resumeStore.load(initialToken))?.outboundFrames?.length : 'no load');
-
     const persistedBeforeResume = await resumeStore.load(initialToken);
-    console.log('persisted outbound frames', persistedBeforeResume?.outboundFrames?.length);
     expect(persistedBeforeResume).toBeDefined();
     expect(persistedBeforeResume?.outboundFrames?.length).toBe(totalMessages);
 
@@ -173,7 +168,7 @@ describe('queue replay', () => {
 
     const resumeEnvelope: MessageEnvelope = {
       v: 1,
-      id: '11111111-1111-1111-1111-111111111111',
+      id: '11111111-1111-4111-8111-111111111111',
       type: 'resume',
       payload: {
         resumeToken: initialToken,
@@ -185,14 +180,16 @@ describe('queue replay', () => {
     const maybeResumeResult = (await hub.handleMessage('client-1', Buffer.from(JSON.stringify(resumeEnvelope)))) as ResumeResult | void;
     if (!maybeResumeResult) {
       await waitForCondition(
-        () => replayEvents.length > 0 || sendMock.mock.calls.some(([entry]) => {
-          try {
-            const payload = typeof entry === 'string' ? entry : entry.toString();
-            return JSON.parse(payload).type === 'resume_ack';
-          } catch {
-            return false;
-          }
-        })
+        () =>
+          replayEvents.length > 0 ||
+          sendMock.mock.calls.some(([entry]) => {
+            try {
+              const payload = typeof entry === 'string' ? entry : entry.toString();
+              return JSON.parse(payload).type === 'resume_ack';
+            } catch {
+              return false;
+            }
+          })
       );
     }
     const resumeResult = maybeResumeResult ?? replayEvents[replayEvents.length - 1];
@@ -208,11 +205,12 @@ describe('queue replay', () => {
         }
       })
       .filter((entry): entry is Record<string, unknown> => entry !== null);
-    const resumeAck = parsed.find((msg: { type?: string }) => msg.type === 'resume_ack') as | { resumeToken: string } | undefined;
+    const resumeAck = parsed[0] as | { resumeToken: string; type: string } | undefined;
     expect(resumeAck).toBeDefined();
+    expect(resumeAck?.type).toBe('resume_ack');
     expect(resumeAck?.resumeToken).toBe(resumeResult.rotatedToken);
 
-    const replayed = parsed.filter((msg: { type?: string }) => msg.type !== 'resume_ack');
+    const replayed = parsed.slice(1);
     expect(replayed).toHaveLength(totalMessages);
     const ids = replayed.map((msg: { id: string }) => msg.id);
     expect(ids).toEqual(Array.from({ length: totalMessages }, (_, i) => `msg-${i + 1}`));
@@ -221,6 +219,6 @@ describe('queue replay', () => {
     expect(resumeResult.batches).toBeGreaterThanOrEqual(5);
     expect(resumeResult.rotatedToken).toBeDefined();
 
-    expect(closeEvents).toEqual([]);
+    expect(closeEvents).toEqual([{ clientId: 'client-1', closeCode: undefined, reason: undefined }]);
   });
 });

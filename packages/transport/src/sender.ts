@@ -20,8 +20,8 @@ export class SendGuard {
     return true;
   }
 
-  send(connection: Connection, payload: string | Buffer) {
+  async send(connection: Connection, payload: string | Buffer) {
     if (!this.canSend(connection)) return;
-    connection.enqueue(payload);
+    await connection.enqueue(payload);
   }
 }

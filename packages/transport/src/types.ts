@@ -1,5 +1,6 @@
 import type { RateLimiterMemory } from 'rate-limiter-flexible';
 import type { WebSocket } from 'ws';
+import type { SafeLogger } from './logging';
 
 export type ClientId = string;
 
@@ -26,7 +27,8 @@ export interface MetricsEvent {
     | 'ws_replay_batch_sent'
     | 'ws_replay_backpressure_hits'
     | 'ws_replay_complete'
-    | 'ws_resume_token_rotated';
+    | 'ws_resume_token_rotated'
+    | 'ws_ping_latency';
   clientId?: string;
   accountId?: string;
   deviceId?: string;
@@ -39,6 +41,7 @@ export interface MetricsEvent {
   batchSize?: number;
   batches?: number;
   resumeTokenRedacted?: string;
+  pingLatencyMs?: number;
 }
 
 export interface AuthenticateParams {
@@ -74,7 +77,8 @@ export interface RegisterResult {
 
 export type ConnectionSnapshot = PersistResumeStateParams;
 
-export type SendFunction = (socket: WebSocket, payload: string | Buffer) => void;
+export type SendCallback = (error?: Error | null) => void;
+export type SendFunction = (socket: WebSocket, payload: string | Buffer, callback?: SendCallback) => void | Promise<void>;
 
 export interface WebSocketHubOptions {
   heartbeatIntervalMs?: number;
@@ -95,6 +99,7 @@ export interface WebSocketHubOptions {
   rateLimiterFactory?: () => RateLimiterMemory;
   messageRateLimiterFactory?: () => RateLimiterMemory;
   metricsRegistry?: import('prom-client').Registry;
+  logger?: SafeLogger;
 }
 
 export interface ResumeResult {

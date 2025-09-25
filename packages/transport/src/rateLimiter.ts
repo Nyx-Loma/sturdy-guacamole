@@ -6,11 +6,25 @@ export interface RateLimiterSet {
 }
 
 export interface RateLimiterConfig {
-  connectionFactory?: () => RateLimiterMemory;
-  messageFactory?: () => RateLimiterMemory;
+  connectionFactory?: () => RateLimiterMemory | null;
+  messageFactory?: () => RateLimiterMemory | null;
 }
 
-export const createRateLimiters = (config: RateLimiterConfig): RateLimiterSet => ({
-  connectionLimiter: config.connectionFactory?.(),
-  messageLimiter: config.messageFactory?.()
-});
+export const createRateLimiters = (config: RateLimiterConfig): RateLimiterSet => {
+  let connectionLimiter: RateLimiterMemory | undefined;
+  let messageLimiter: RateLimiterMemory | undefined;
+
+  try {
+    connectionLimiter = config.connectionFactory?.() ?? undefined;
+  } catch {
+    connectionLimiter = undefined;
+  }
+
+  try {
+    messageLimiter = config.messageFactory?.() ?? undefined;
+  } catch {
+    messageLimiter = undefined;
+  }
+
+  return { connectionLimiter, messageLimiter };
+};

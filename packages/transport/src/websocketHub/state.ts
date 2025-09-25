@@ -1,16 +1,16 @@
-import { randomUUID } from 'node:crypto';
 import type { MessageEnvelope } from '../schemas';
 import { createRateLimiters } from '../rateLimiter';
 import { Metrics } from '../metrics';
 import { Connection } from '../connection';
 import { persistConnectionSnapshot } from './snapshot';
 import type { WebSocketHubOptions } from '../types';
+import { randomUUID } from 'node:crypto';
+import { logWithContext, redactToken, sanitizeError } from '../logging';
 
 const DEFAULT_MAX_BUFFERED_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RESUME_TTL_MS = 15 * 60_000;
 const DEFAULT_OUTBOUND_LOG_LIMIT = 500;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 60_000;
-const DEFAULT_MAX_QUEUE_LENGTH = 1024;
 const DEFAULT_MAX_REPLAY_BATCH_SIZE = 100;
 
 export interface HubState {
@@ -34,8 +34,8 @@ export interface HubState {
   readonly size: () => number;
   readonly persistSnapshot: (connection: Connection) => Promise<void>;
   readonly scheduleHeartbeat: (connection: Connection) => void;
-  readonly safeSend: (connection: Connection, payload: string | Buffer) => void;
-  readonly safeSendWithBackpressure: (connection: Connection, payload: string) => boolean;
+  readonly safeSend: (connection: Connection, payload: string | Buffer) => Promise<void>;
+  readonly safeSendWithBackpressure: (connection: Connection, payload: string) => Promise<boolean>;
   readonly nextResumeToken: () => { token: string; expiresAt: number };
 }
 
@@ -54,10 +54,6 @@ export function createHubState(options: WebSocketHubOptions): HubState {
     messageFactory: options.messageRateLimiterFactory
   });
 
-  const debug = (...args: unknown[]) => {
-    console.log('[WebSocketHub]', ...args);
-  };
-
   const broadcast = (message: MessageEnvelope) => {
     const raw = JSON.stringify(message);
     for (const connection of connections.values()) {
@@ -68,14 +64,16 @@ export function createHubState(options: WebSocketHubOptions): HubState {
   const size = () => connections.size;
 
   const persistSnapshot = async (connection: Connection) => {
-    debug('persistSnapshot', { clientId: connection.id, outboundSize: connection.outboundLog.length });
+    logWithContext(options.logger, 'debug', 'persist_snapshot', {
+      clientId: connection.id,
+      outboundSize: connection.outboundLog.length
+    });
     await persistConnectionSnapshot(connection, {
       persistResumeState: options.persistResumeState
     });
   };
 
-  const safeSend = (connection: Connection, payload: string | Buffer) => {
-    debug('safeSend', { clientId: connection.id, payloadPreview: typeof payload === 'string' ? payload.slice(0, 80) : '[buffer]', bufferedAmount: connection.socket.bufferedAmount });
+  const safeSend = async (connection: Connection, payload: string | Buffer) => {
     if (connection.socket.bufferedAmount > maxBufferedBytes) {
       metrics.record({
         type: 'ws_overloaded',
@@ -89,11 +87,15 @@ export function createHubState(options: WebSocketHubOptions): HubState {
       return;
     }
 
-    connection.enqueue(payload);
+    await connection.enqueue(payload);
   };
 
-  const safeSendWithBackpressure = (connection: Connection, payload: string) => {
-    debug('safeSendWithBackpressure', { clientId: connection.id, payloadPreview: payload.slice(0, 80), bufferedAmount: connection.socket.bufferedAmount });
+  const safeSendWithBackpressure = async (connection: Connection, payload: string) => {
+    logWithContext(options.logger, 'debug', 'safe_send_backpressure', {
+      clientId: connection.id,
+      payloadPreview: payload.slice(0, 80),
+      bufferedAmount: connection.socket.bufferedAmount
+    });
     if (connection.socket.bufferedAmount > maxBufferedBytes) {
       metrics.record({
         type: 'ws_overloaded',
@@ -107,7 +109,7 @@ export function createHubState(options: WebSocketHubOptions): HubState {
       return false;
     }
 
-    connection.enqueue(payload);
+    await connection.enqueue(payload);
     return true;
   };
 
@@ -124,6 +126,7 @@ export function createHubState(options: WebSocketHubOptions): HubState {
       const now = Date.now();
       if (now - connection.lastSeenAt >= heartbeatIntervalMs) {
         try {
+          connection.lastPingSentAt = Date.now();
           connection.socket.ping();
         } catch {
           connection.socket.terminate();
@@ -146,19 +149,22 @@ export function createHubState(options: WebSocketHubOptions): HubState {
   };
 
   const nextResumeToken = () => {
-    const token = randomUUID();
+    const token = typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID() : randomUUID();
     return { token, expiresAt: Date.now() + resumeTokenTtlMs };
   };
 
   const broadcastTo = async (connection: Connection, raw: string) => {
-    debug('broadcastTo', { clientId: connection.id, payloadPreview: raw.slice(0, 80) });
+    logWithContext(options.logger, 'debug', 'broadcast_frame', {
+      clientId: connection.id,
+      payloadPreview: raw.slice(0, 80)
+    });
     connection.serverSequence += 1;
     connection.outboundLog.push({ seq: connection.serverSequence, payload: raw });
     if (connection.outboundLog.length > outboundLogLimit) {
       connection.outboundLog.shift();
     }
 
-    safeSend(connection, raw);
+    await safeSend(connection, raw);
     await persistSnapshot(connection);
   };
 

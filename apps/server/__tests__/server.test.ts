@@ -65,7 +65,7 @@ describe('server bootstrap', () => {
             v: 1,
             id: '9d7b1b5c-5e15-4b92-a2e2-7f0d6ffd1fd1',
             type: 'msg',
-            payload: {},
+            payload: { seq: 0 },
             size: 42
           })
         );
