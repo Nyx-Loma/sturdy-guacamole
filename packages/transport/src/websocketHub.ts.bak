@@ -1,0 +1,402 @@
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import type { RawData, WebSocket } from 'ws';
+import { MessageEnvelopeSchema, ResumePayloadSchema, type MessageEnvelope } from './schemas';
+import type {
+  AckMessage,
+  AuthenticateParams,
+  MetricsEvent,
+  WebSocketHubOptions,
+  RegisterResult,
+  ResumeResult
+} from './types';
+import { Connection } from './connection';
+import { Metrics } from './metrics';
+import { createRateLimiters } from './rateLimiter';
+
+const DEFAULT_MAX_BUFFERED_BYTES = 5 * 1024 * 1024;
+const DEFAULT_RESUME_TTL_MS = 15 * 60_000;
+const DEFAULT_OUTBOUND_LOG_LIMIT = 500;
+
+export class WebSocketHub {
+  private readonly connections = new Map<string, Connection>();
+  private readonly heartbeatIntervalMs: number;
+  private readonly maxBufferedBytes: number;
+  private readonly resumeTokenTtlMs: number;
+  private readonly outboundLogLimit: number;
+  private readonly metrics: Metrics;
+  private readonly send: (socket: WebSocket, payload: string | Buffer) => void;
+  private readonly authenticate: WebSocketHubOptions['authenticate'];
+  private readonly loadResumeState: WebSocketHubOptions['loadResumeState'];
+  private readonly persistResumeState: WebSocketHubOptions['persistResumeState'];
+  private readonly dropResumeState: WebSocketHubOptions['dropResumeState'];
+  private readonly onReplayComplete?: WebSocketHubOptions['onReplayComplete'];
+  private readonly onClose?: WebSocketHubOptions['onClose'];
+  private readonly heartbeatDisabled: boolean;
+  private readonly maxReplayBatchSize: number;
+  private readonly connectionLimiter?: ReturnType<typeof createRateLimiters>['connectionLimiter'];
+  private readonly messageLimiter?: ReturnType<typeof createRateLimiters>['messageLimiter'];
+
+  constructor(private readonly options: WebSocketHubOptions) {
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 60_000;
+    this.maxBufferedBytes = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
+    this.resumeTokenTtlMs = options.resumeTokenTtlMs ?? DEFAULT_RESUME_TTL_MS;
+    this.outboundLogLimit = options.outboundLogLimit ?? DEFAULT_OUTBOUND_LOG_LIMIT;
+    this.send = options.send ?? ((socket, payload) => socket.send(payload));
+    this.metrics = new Metrics(options.metricsRegistry, options.onMetrics);
+    this.authenticate = options.authenticate;
+    this.loadResumeState = options.loadResumeState;
+    this.persistResumeState = options.persistResumeState;
+    this.dropResumeState = options.dropResumeState;
+    this.onReplayComplete = options.onReplayComplete;
+    this.onClose = options.onClose;
+    this.heartbeatDisabled = options.heartbeatDisabled ?? false;
+    this.maxReplayBatchSize = options.maxReplayBatchSize ?? 100;
+    const limiters = createRateLimiters({
+      connectionFactory: options.rateLimiterFactory,
+      messageFactory: options.messageRateLimiterFactory
+    });
+    this.connectionLimiter = limiters.connectionLimiter;
+    this.messageLimiter = limiters.messageLimiter;
+  }
+
+  getMetricsRegistry() {
+    return this.metrics.getRegistry();
+  }
+
+  async register(socket: WebSocket, clientId: string, headers: AuthenticateParams['requestHeaders']): Promise<RegisterResult | null> {
+    const auth = await this.authenticate({ clientId, requestHeaders: headers });
+    if (!auth) {
+      socket.close(1008, 'unauthorized');
+      this.metrics.record({ type: 'ws_closed', clientId, closeCode: 1008, reason: 'unauthorized' });
+      return null;
+    }
+
+    if (this.connectionLimiter) {
+      try {
+        await this.connectionLimiter.consume(auth.accountId);
+      } catch {
+        socket.close(1013, 'connection_rate_limited');
+        this.metrics.record({ type: 'ws_closed', clientId, accountId: auth.accountId, deviceId: auth.deviceId, closeCode: 1013, reason: 'connection_rate_limited' });
+        return null;
+      }
+    }
+
+    const now = Date.now();
+    const resumeToken = randomUUID();
+    const connection = new Connection({
+      clientId,
+      socket,
+      accountId: auth.accountId,
+      deviceId: auth.deviceId,
+      resumeToken,
+      resumeTokenExpiresAt: now + this.resumeTokenTtlMs,
+      maxQueueLength: this.options.maxQueueLength ?? 1024,
+      send: this.send,
+      emitMetrics: (event: MetricsEvent) => this.metrics.record(event)
+    });
+
+    this.connections.set(clientId, connection);
+    socket.on('close', () => this.handleClose(connection));
+    socket.on('pong', () => this.handlePong(connection));
+
+    this.metrics.record({ type: 'ws_connected', clientId, accountId: connection.accountId, deviceId: connection.deviceId });
+    if (!this.heartbeatDisabled) {
+      this.scheduleHeartbeat(connection);
+    }
+
+    return { resumeToken };
+  }
+
+  async handleMessage(clientId: string, raw: RawData): Promise<ResumeResult | void> {
+    const connection = this.connections.get(clientId);
+    if (!connection) return;
+
+    if (this.messageLimiter) {
+      try {
+        await this.messageLimiter.consume(connection.accountId);
+      } catch {
+        connection.close(1008, 'message_rate_limited');
+        this.metrics.record({ type: 'ws_closed', clientId, accountId: connection.accountId, deviceId: connection.deviceId, closeCode: 1008, reason: 'message_rate_limited' });
+        return;
+      }
+    }
+
+    if (raw.length > 64 * 1024) {
+      this.metrics.record({ type: 'ws_invalid_size', clientId, accountId: connection.accountId, deviceId: connection.deviceId });
+      connection.close(1009, 'message_too_large');
+      return;
+    }
+
+    let envelope: MessageEnvelope;
+    try {
+      envelope = MessageEnvelopeSchema.parse(JSON.parse(raw.toString()));
+    } catch {
+      this.metrics.record({ type: 'ws_invalid_frame', clientId, accountId: connection.accountId, deviceId: connection.deviceId });
+      connection.close(1002, 'protocol_error');
+      return;
+    }
+
+    connection.lastSeenAt = Date.now();
+    this.scheduleHeartbeat(connection);
+
+    if (envelope.type === 'resume') {
+      return this.handleResume(connection, envelope);
+    }
+
+    if (connection.inFlight.has(envelope.id)) {
+      this.sendAck(connection, envelope.id, 'rejected', undefined, 'duplicate');
+      return;
+    }
+
+    connection.inFlight.add(envelope.id);
+    connection.sequence += 1;
+    this.sendAck(connection, envelope.id, 'accepted', connection.sequence);
+  }
+
+  broadcast(message: MessageEnvelope) {
+    const raw = JSON.stringify(message);
+    for (const connection of this.connections.values()) {
+      void this.broadcastTo(connection, raw);
+    }
+  }
+
+  private async broadcastTo(connection: Connection, raw: string) {
+    connection.serverSequence += 1;
+    connection.outboundLog.push({ seq: connection.serverSequence, payload: raw });
+    if (connection.outboundLog.length > this.outboundLogLimit) connection.outboundLog.shift();
+    connection.enqueue(raw);
+    await this.persistSnapshot(connection);
+  }
+
+  size() {
+    return this.connections.size;
+  }
+
+  private async persistSnapshot(connection: Connection) {
+    await this.persistResumeState({
+      resumeToken: connection.resumeToken,
+      accountId: connection.accountId,
+      deviceId: connection.deviceId,
+      lastServerSeq: connection.serverSequence,
+      expiresAt: connection.resumeTokenExpiresAt,
+      outboundFrames: [...connection.outboundLog]
+    });
+  }
+
+  private handleClose(connection: Connection) {
+    this.connections.delete(connection.id);
+    if (connection.pingTimeout) clearTimeout(connection.pingTimeout);
+    void this.persistSnapshot(connection);
+    const ctx = {
+      clientId: connection.id,
+      accountId: connection.accountId,
+      deviceId: connection.deviceId
+    };
+    this.metrics.record({ type: 'ws_closed', ...ctx });
+    this.onClose?.({ ...ctx });
+  }
+
+  private handlePong(connection: Connection) {
+    connection.lastSeenAt = Date.now();
+    if (connection.pingTimeout) {
+      clearTimeout(connection.pingTimeout);
+      connection.pingTimeout = undefined;
+    }
+  }
+
+  private sendAck(connection: Connection, id: string, status: AckMessage['status'], seq?: number, reason?: string) {
+    const ack: AckMessage = { type: 'ack', id, status, seq, reason };
+    this.safeSend(connection, JSON.stringify(ack));
+    this.metrics.record({
+      type: status === 'accepted' ? 'ws_ack_sent' : 'ws_ack_rejected',
+      clientId: connection.id,
+      accountId: connection.accountId,
+      deviceId: connection.deviceId,
+      ackStatus: status,
+      ackLatencyMs: Date.now() - connection.lastSeenAt
+    });
+    if (status === 'accepted') connection.inFlight.delete(id);
+  }
+
+  private safeSend(connection: Connection, payload: string | Buffer) {
+    if (connection.socket.bufferedAmount > this.maxBufferedBytes) {
+      this.metrics.record({
+        type: 'ws_overloaded',
+        clientId: connection.id,
+        accountId: connection.accountId,
+        deviceId: connection.deviceId,
+        bufferedAmount: connection.socket.bufferedAmount
+      });
+      connection.close(1013, 'overloaded');
+      return;
+    }
+
+    connection.enqueue(payload);
+  }
+
+  private async handleResume(connection: Connection, envelope: MessageEnvelope): Promise<ResumeResult> {
+    let payload: z.infer<typeof ResumePayloadSchema>;
+    try {
+      payload = ResumePayloadSchema.parse(envelope.payload);
+    } catch {
+      connection.close(1002, 'invalid_resume');
+      return { replayCount: 0, batches: 0 };
+    }
+
+    const now = Date.now();
+    if (payload.resumeToken !== connection.resumeToken || now > connection.resumeTokenExpiresAt) {
+      const persisted = await this.loadResumeState(payload.resumeToken);
+      if (!persisted) {
+        connection.close(1008, 'invalid_token');
+        return { replayCount: 0, batches: 0 };
+      }
+      if (persisted.expiresAt < now) {
+        await this.dropResumeState(payload.resumeToken);
+        connection.close(1008, 'expired_token');
+        return { replayCount: 0, batches: 0 };
+      }
+      if (persisted.accountId !== connection.accountId || persisted.deviceId !== connection.deviceId) {
+        connection.close(1008, 'token_conflict');
+        return { replayCount: 0, batches: 0 };
+      }
+      connection.sequence = persisted.lastServerSeq;
+      connection.serverSequence = persisted.lastServerSeq;
+      connection.outboundLog = persisted.outboundFrames ?? [];
+      await this.dropResumeState(payload.resumeToken);
+    }
+
+    const fromSeq = payload.lastClientSeq + 1;
+    connection.resumeToken = randomUUID();
+    connection.resumeTokenExpiresAt = now + this.resumeTokenTtlMs;
+
+    this.safeSend(connection, JSON.stringify({
+      type: 'resume_ack',
+      fromSeq,
+      expiresInMs: connection.resumeTokenExpiresAt - now,
+      resumeToken: connection.resumeToken
+    }));
+
+    const framesToReplay = connection.outboundLog.filter((frame) => frame.seq >= fromSeq);
+    const batches = Math.ceil(framesToReplay.length / this.maxReplayBatchSize) || 0;
+    let replayCount = 0;
+
+    this.metrics.record({
+      type: 'ws_replay_start',
+      clientId: connection.id,
+      accountId: connection.accountId,
+      deviceId: connection.deviceId,
+      replayCount: framesToReplay.length,
+      batches
+    });
+
+    let aborted = false;
+    for (let i = 0; i < framesToReplay.length; i += this.maxReplayBatchSize) {
+      if (aborted) break;
+      const batch = framesToReplay.slice(i, i + this.maxReplayBatchSize);
+      for (const frame of batch) {
+        if (!this.safeSendWithBackpressure(connection, frame.payload)) {
+          aborted = true;
+          break;
+        }
+        replayCount += 1;
+      }
+      this.metrics.record({
+        type: 'ws_replay_batch_sent',
+        clientId: connection.id,
+        accountId: connection.accountId,
+        deviceId: connection.deviceId,
+        batchSize: aborted ? replayCount % this.maxReplayBatchSize : batch.length
+      });
+    }
+
+    if (aborted) {
+      return {
+        replayCount,
+        rotatedToken: connection.resumeToken,
+        batches
+      };
+    }
+
+    await this.persistSnapshot(connection);
+
+    this.metrics.record({
+      type: 'ws_resume_token_rotated',
+      clientId: connection.id,
+      accountId: connection.accountId,
+      deviceId: connection.deviceId,
+      resumeTokenRedacted: this.redact(connection.resumeToken)
+    });
+    this.metrics.record({
+      type: 'ws_replay_complete',
+      clientId: connection.id,
+      accountId: connection.accountId,
+      deviceId: connection.deviceId,
+      replayCount,
+      batches
+    });
+    this.onReplayComplete?.({
+      accountId: connection.accountId,
+      deviceId: connection.deviceId,
+      resumeToken: connection.resumeToken,
+      replayCount,
+      batches
+    });
+
+    return { replayCount, rotatedToken: connection.resumeToken, batches };
+  }
+
+  private scheduleHeartbeat(connection: Connection) {
+    if (this.heartbeatDisabled) {
+      return;
+    }
+    if (connection.pingTimeout) clearTimeout(connection.pingTimeout);
+    connection.pingTimeout = setTimeout(() => {
+      const now = Date.now();
+      if (now - connection.lastSeenAt >= this.heartbeatIntervalMs) {
+        try {
+          connection.socket.ping();
+        } catch {
+          connection.socket.terminate();
+          this.connections.delete(connection.id);
+          this.metrics.record({ type: 'ws_heartbeat_terminate', clientId: connection.id, accountId: connection.accountId, deviceId: connection.deviceId });
+          return;
+        }
+        connection.pingTimeout = setTimeout(() => {
+          connection.socket.terminate();
+          this.connections.delete(connection.id);
+          this.metrics.record({ type: 'ws_heartbeat_terminate', clientId: connection.id, accountId: connection.accountId, deviceId: connection.deviceId });
+        }, this.heartbeatIntervalMs / 2);
+      } else {
+        this.scheduleHeartbeat(connection);
+      }
+    }, this.heartbeatIntervalMs);
+  }
+
+  private redact(token: string) {
+    return token.length > 8 ? `${token.slice(0, 4)}***${token.slice(-4)}` : '***redacted***';
+  }
+
+  private safeSendWithBackpressure(connection: Connection, payload: string): boolean {
+    if (connection.socket.bufferedAmount > this.maxBufferedBytes) {
+      this.metrics.record({
+        type: 'ws_overloaded',
+        clientId: connection.id,
+        accountId: connection.accountId,
+        deviceId: connection.deviceId,
+        bufferedAmount: connection.socket.bufferedAmount
+      });
+      this.onClose?.({
+        clientId: connection.id,
+        accountId: connection.accountId,
+        deviceId: connection.deviceId,
+        closeCode: 1013,
+        reason: 'overloaded'
+      });
+      connection.close(1013, 'overloaded');
+      return false;
+    }
+    connection.enqueue(payload);
+    return true;
+  }
+}

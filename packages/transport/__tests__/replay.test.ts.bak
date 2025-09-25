@@ -1,0 +1,199 @@
+import { describe, expect, it, vi } from 'vitest';
+import { WebSocketHub, createInMemoryResumeStore, createQueueConsumer } from '../src/index';
+import type { Queue, QueueMessage } from '../src/queue';
+import type { MessageEnvelope } from '../src/schemas';
+import type { ResumeResult } from '../src/types';
+
+type MockSend = ReturnType<typeof vi.fn>;
+
+interface MockWebSocket {
+  readyState: number;
+  OPEN: number;
+  bufferedAmount: number;
+  send: MockSend;
+  close: ReturnType<typeof vi.fn>;
+  terminate: ReturnType<typeof vi.fn>;
+  ping: ReturnType<typeof vi.fn>;
+  on: (event: string, listener: (...args: unknown[]) => void) => void;
+  trigger: (event: string, ...args: unknown[]) => void;
+}
+
+const createMockSocket = () => {
+  const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+  const sent: string[] = [];
+  let bufferedAmount = 0;
+  const sendMock: MockSend = vi.fn((data: string | Buffer, cb?: () => void) => {
+    const payload = typeof data === 'string' ? data : data.toString();
+    bufferedAmount += payload.length;
+    sent.push(payload);
+    setTimeout(() => {
+      bufferedAmount = 0;
+      cb?.();
+    }, 0);
+  });
+
+  const socket: MockWebSocket = {
+    readyState: 1,
+    OPEN: 1,
+    get bufferedAmount() {
+      return bufferedAmount;
+    },
+    send: sendMock,
+    close: vi.fn(() => {
+      socket.readyState = 3;
+    }),
+    terminate: vi.fn(() => {
+      socket.readyState = 3;
+    }),
+    ping: vi.fn(),
+    on(event, listener) {
+      const arr = listeners.get(event) ?? [];
+      arr.push(listener);
+      listeners.set(event, arr);
+    },
+    trigger(event, ...args) {
+      const arr = listeners.get(event) ?? [];
+      for (const listener of arr) {
+        listener(...args);
+      }
+    }
+  } as MockWebSocket;
+
+  return { socket, sent, sendMock, listeners };
+};
+
+const createInMemoryQueue = () => {
+  let handler: ((message: QueueMessage) => Promise<void>) | null = null;
+
+  const queue: Queue = {
+    subscribe: async (h) => {
+      handler = h;
+      while (pending.length > 0) {
+        await handler(pending.shift()!);
+      }
+    },
+    ack: async () => {},
+    reject: async () => {},
+    close: async () => {}
+  };
+
+  const pending: QueueMessage[] = [];
+
+  const publish = async (payload: MessageEnvelope) => {
+    const message: QueueMessage = { payload };
+    if (handler) {
+      await handler(message);
+    } else {
+      pending.push(message);
+    }
+  };
+
+  return { queue, publish };
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const flushAsync = () => sleep(0);
+
+const waitForCondition = async (condition: () => boolean, timeoutMs = 10000, pollMs = 5, onTimeout?: () => string) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      const extra = onTimeout?.();
+      throw new Error(extra ? `timeout waiting for condition: ${extra}` : 'timeout waiting for condition');
+    }
+    await sleep(pollMs);
+  }
+};
+
+describe('queue replay', () => {
+  it('replays queued messages after resume', async () => {
+    const resumeStore = createInMemoryResumeStore();
+    const totalMessages = 100;
+
+    const replayEvents: ResumeResult[] = [];
+    const closeEvents: Array<{ clientId: string; closeCode?: number; reason?: string }> = [];
+
+    const hub = new WebSocketHub({
+      heartbeatDisabled: true,
+      maxReplayBatchSize: 20,
+      authenticate: async () => ({ accountId: 'acc', deviceId: 'device' }),
+      loadResumeState: resumeStore.load,
+      persistResumeState: resumeStore.persist,
+      dropResumeState: resumeStore.drop,
+      onMetrics: () => {},
+      onReplayComplete: (ctx) => {
+        replayEvents.push({ replayCount: ctx.replayCount, rotatedToken: ctx.resumeToken, batches: ctx.batches });
+      },
+      onClose: (event) => {
+        closeEvents.push({ clientId: event.clientId, closeCode: event.closeCode, reason: event.reason });
+      }
+    });
+
+    const { socket: socket1 } = createMockSocket();
+    const { resumeToken: initialToken } = await hub.register(socket1 as unknown as WebSocket, 'client-1', {});
+
+    const { queue, publish } = createInMemoryQueue();
+    await createQueueConsumer({
+      hub,
+      queue,
+      onError: () => {}
+    });
+
+    for (let i = 1; i <= totalMessages; i++) {
+      await publish({
+        v: 1,
+        id: `msg-${i}`,
+        type: 'msg',
+        payload: { seq: i },
+        size: 10
+      });
+    }
+
+    await flushAsync();
+
+    const persistedBeforeResume = await resumeStore.load(initialToken);
+    expect(persistedBeforeResume).toBeDefined();
+    expect(persistedBeforeResume?.outboundFrames?.length).toBe(totalMessages);
+
+    socket1.trigger('close');
+    await flushAsync();
+
+    const { socket: socket2, sent: sent2 } = createMockSocket();
+    await hub.register(socket2 as unknown as WebSocket, 'client-1', {});
+
+    const resumeEnvelope: MessageEnvelope = {
+      v: 1,
+      id: 'resume-1',
+      type: 'resume',
+      payload: {
+        resumeToken: initialToken,
+        lastClientSeq: 0
+      },
+      size: 10
+    };
+
+    const replayResult = (await hub.handleMessage('client-1', Buffer.from(JSON.stringify(resumeEnvelope)))) as ResumeResult;
+
+    await sleep(10);
+    await waitForCondition(() => sent2.length >= totalMessages + 1, 10000, 5, () => `sent=${sent2.length}`);
+
+    const parsed = sent2.map((entry) => JSON.parse(entry));
+    if (parsed.length !== totalMessages + 1) {
+      console.log('replay frames mismatch', { parsedCount: parsed.length });
+    }
+    const resumeAck = parsed.find((msg: { type?: string }) => msg.type === 'resume_ack');
+    expect(resumeAck).toBeDefined();
+    expect(resumeAck.resumeToken).toBe(replayResult.rotatedToken);
+
+    const replayed = parsed.filter((msg: { type?: string }) => msg.type !== 'resume_ack');
+    expect(replayed).toHaveLength(totalMessages);
+    const ids = replayed.map((msg: { id: string }) => msg.id);
+    expect(ids).toEqual(Array.from({ length: totalMessages }, (_, i) => `msg-${i + 1}`));
+
+    expect(replayResult.replayCount).toBe(totalMessages);
+    expect(replayResult.batches).toBeGreaterThanOrEqual(5);
+    expect(replayResult.rotatedToken).toBeDefined();
+
+    expect(closeEvents).toEqual([]);
+  });
+});

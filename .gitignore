@@ -1,0 +1,11 @@
+.DS_Store
+node_modules/
+pnpm-debug.log
+.pnpm-store/
+.env
+.env.local
+.env.production
+dist/
+coverage/
+*.log
+
