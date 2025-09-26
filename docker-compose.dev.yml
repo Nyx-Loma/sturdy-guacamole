@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  auth-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: auth
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-d', 'auth', '-U', 'auth']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+
+  auth-cache:
+    image: redis:7
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+    environment:
+      STORAGE_DRIVER: postgres
+      POSTGRES_URL: postgres://auth:auth@auth-db:5432/auth
+      REDIS_URL: redis://auth-cache:6379
+      NODE_ENV: development
+      LOG_LEVEL: debug
+      CAPTCHA_PROVIDER: none
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: 8081
+    ports:
+      - '8081:8081'
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      auth-cache:
+        condition: service_healthy
+    volumes:
+      - .:/workspace:delegated
+      - auth-service-node-modules:/workspace/node_modules
+
+volumes:
+  auth-db-data:
+  auth-service-node-modules:

@@ -1,6 +1,6 @@
-import { randomBytes } from './random';
-import { decrypt as decryptSym, deriveSymmetricKey, encrypt as encryptSym } from './symmetric';
-import { generateSigningKeyPair, sign, verify } from './asymmetric';
+import { randomBytes as randomBytesPrimitive } from './primitives/random';
+import { deriveSymmetricKey as deriveSymmetricKeyPrimitive, encrypt as encryptPrimitive, decrypt as decryptPrimitive } from './primitives/symmetric';
+import { generateSigningKeyPair as generateSigningKeyPairPrimitive, sign as signPrimitive, verify as verifyPrimitive } from './primitives/asymmetric';
 import {
   brandCipherText,
   CipherText,
@@ -28,42 +28,48 @@ export interface ProviderOverrides {
 
 export const createCryptoProvider = (overrides: ProviderOverrides = {}): CryptoProvider => ({
   async randomBytes(length: number) {
-    return overrides.randomBytes ? overrides.randomBytes(length) : randomBytes(length);
+    return overrides.randomBytes ? overrides.randomBytes(length) : randomBytesPrimitive(length);
   },
   async generateKeyPair() {
-    return overrides.generateKeyPair ? overrides.generateKeyPair() : generateSigningKeyPair();
+    return overrides.generateKeyPair ? overrides.generateKeyPair() : generateSigningKeyPairPrimitive();
   },
   async deriveSymmetricKey(ikm, info, salt) {
     if (overrides.deriveSymmetricKey) {
       return overrides.deriveSymmetricKey(ikm, info, salt);
     }
-    return deriveSymmetricKey(ikm, info, salt);
+    return deriveSymmetricKeyPrimitive(ikm, info, salt);
   },
   async encrypt(key, plaintext, nonce, options) {
     if (overrides.encrypt) {
       return overrides.encrypt(key, plaintext, nonce, options);
     }
-    const ciphertext = await encryptSym(key, plaintext, nonce, options);
+    const ciphertext = await encryptPrimitive(key, plaintext, nonce, options);
     return brandCipherText(ciphertext);
   },
   async decrypt(key, ciphertext, nonce, options) {
     if (overrides.decrypt) {
       return overrides.decrypt(key, ciphertext, nonce, options);
     }
-    const plaintext = await decryptSym(key, ciphertext, nonce, options);
+    const plaintext = await decryptPrimitive(key, ciphertext, nonce, options);
     return { plaintext } satisfies DecryptResult;
   },
   async sign(key, message) {
     if (overrides.sign) {
       return overrides.sign(key, message);
     }
-    return sign(message, key);
+    return signPrimitive(message, key);
   },
   async verify(key, message, signature) {
     if (overrides.verify) {
       return overrides.verify(key, message, signature);
     }
-    return verify(message, signature, key);
+    return verifyPrimitive(message, signature, key);
+  },
+  async nonce() {
+    if (overrides.nonce) {
+      return overrides.nonce();
+    }
+    return randomBytesPrimitive(24);
   }
 });
 

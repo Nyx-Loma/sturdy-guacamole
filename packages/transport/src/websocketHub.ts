@@ -5,6 +5,7 @@ import { createHubState } from './websocketHub/state';
 import { registerClient } from './websocketHub/registerClient';
 import { handleMessage } from './websocketHub/handleMessage';
 import type { WebSocket } from 'ws';
+import { handleAttach } from './websocketHub/wsAttach';
 
 export class WebSocketHub {
   private readonly state: HubState;

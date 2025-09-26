@@ -1,10 +1,9 @@
 export * from './types';
 export { createCryptoProvider } from './provider';
 export { createKeySerializer } from './keySerializer';
-export * as Symmetric from './symmetric';
-export * as Asymmetric from './asymmetric';
-export * as Random from './random';
-export * as Session from './session';
-export * as Envelope from './envelope';
-export * as Ratchet from './ratchet';
+export * as Primitives from './primitives';
+export * as Sessions from './sessions/handshake';
+export * as Ratchet from './sessions/ratchet';
+export * as Envelope from './sessions/envelope';
+export * as State from './sessions/state';
 

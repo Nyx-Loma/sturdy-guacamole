@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
-import { Ratchet, Session } from '../src/index';
+import { Ratchet, Sessions } from '../src/index';
 import { ensureSodium } from '../src/sodium/init';
 
 beforeAll(async () => {
@@ -9,11 +9,11 @@ beforeAll(async () => {
 const tc = (text: string) => new TextEncoder().encode(text);
 
 const initStates = async (options?: { maxSkipped?: number }) => {
-  const aliceKeys = await Session.createSessionKeyPair();
-  const bobKeys = await Session.createSessionKeyPair();
+  const aliceKeys = await Sessions.createSessionKeyPair();
+  const bobKeys = await Sessions.createSessionKeyPair();
 
-  const aliceSession = await Session.performHandshake(aliceKeys.secretKey, bobKeys.publicKey);
-  const bobSession = await Session.performHandshake(bobKeys.secretKey, aliceKeys.publicKey);
+  const aliceSession = await Sessions.performHandshake(aliceKeys.secretKey, bobKeys.publicKey);
+  const bobSession = await Sessions.performHandshake(bobKeys.secretKey, aliceKeys.publicKey);
 
   const aliceState = await Ratchet.initialize(aliceSession, aliceKeys, bobKeys.publicKey, options);
   const bobState = await Ratchet.initialize(bobSession, bobKeys, aliceKeys.publicKey, options);

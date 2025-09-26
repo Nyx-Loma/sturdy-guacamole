@@ -1,6 +1,10 @@
 import { Counter, Gauge, Histogram, Registry } from 'prom-client';
 import type { MetricsEvent } from './types';
 
+const SAFE_ACCOUNT = 'acct';
+const SAFE_DEVICE = 'device';
+const toSafe = (value: string | undefined, placeholder: string) => (value && value !== '' ? value : placeholder);
+
 export class Metrics {
   private readonly registry: Registry;
   private readonly connects: Counter<string>;
@@ -138,55 +142,57 @@ export class Metrics {
 
   record(event: MetricsEvent) {
     this.fallbackEmitter?.(event);
+    const accountId = toSafe(event.accountId, SAFE_ACCOUNT);
+    const deviceId = toSafe(event.deviceId, SAFE_DEVICE);
     switch (event.type) {
       case 'ws_connected':
-        this.connects.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        this.connects.labels(accountId, deviceId).inc();
         break;
       case 'ws_closed':
-        this.closes.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown', String(event.closeCode ?? '0'), event.reason ?? 'unknown').inc();
+        this.closes
+          .labels(accountId, deviceId, String(event.closeCode ?? '0'), event.reason ?? 'unknown')
+          .inc();
         break;
       case 'ws_invalid_frame':
-        this.invalidFrames.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        this.invalidFrames.labels(accountId, deviceId).inc();
         break;
       case 'ws_invalid_size':
-        this.invalidSize.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        this.invalidSize.labels(accountId, deviceId).inc();
         break;
       case 'ws_ack_sent':
       case 'ws_ack_rejected':
-        this.ackStatus.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown', event.ackStatus ?? 'unknown').inc();
+        this.ackStatus.labels(accountId, deviceId, event.ackStatus ?? 'unknown').inc();
         if (event.ackLatencyMs !== undefined) {
-          this.ackLatency.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').observe(event.ackLatencyMs);
+          this.ackLatency.labels(accountId, deviceId).observe(event.ackLatencyMs);
         }
         break;
       case 'ws_overloaded':
-        this.overloads.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        this.overloads.labels(accountId, deviceId).inc();
         if (event.bufferedAmount !== undefined) {
-          this.bufferedBytes.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').set(event.bufferedAmount);
+          this.bufferedBytes.labels(accountId, deviceId).set(event.bufferedAmount);
         }
         break;
       case 'ws_heartbeat_terminate':
-        this.heartbeatTerminations.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        this.heartbeatTerminations.labels(accountId, deviceId).inc();
         break;
       case 'ws_frame_sent':
-        this.framesSent.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        this.framesSent.labels(accountId, deviceId).inc();
         break;
       case 'ws_replay_start':
-        this.replayStart.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        this.replayStart.labels(accountId, deviceId).inc();
         break;
       case 'ws_replay_batch_sent':
-        this.replayBatches.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc(event.batchSize ?? 0);
+        this.replayBatches.labels(accountId, deviceId).inc(event.batchSize ?? 0);
         break;
       case 'ws_replay_backpressure_hits':
-        this.replayBackpressure.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc(event.batchSize ?? 1);
+        this.replayBackpressure.labels(accountId, deviceId).inc(event.batchSize ?? 1);
         break;
       case 'ws_replay_complete':
-        this.replayComplete.labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown').inc();
+        this.replayComplete.labels(accountId, deviceId).inc();
         break;
       case 'ws_ping_latency':
         if (event.pingLatencyMs !== undefined) {
-          this.pingLatency
-            .labels(event.accountId ?? 'unknown', event.deviceId ?? 'unknown')
-            .observe(event.pingLatencyMs);
+          this.pingLatency.labels(accountId, deviceId).observe(event.pingLatencyMs);
         }
         break;
     }

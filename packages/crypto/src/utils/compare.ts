@@ -1,10 +1,11 @@
-export const compareUint8 = (a: Uint8Array, b: Uint8Array) => {
-  const len = Math.min(a.length, b.length);
-  for (let i = 0; i < len; i += 1) {
-    if (a[i] !== b[i]) {
-      return a[i] - b[i];
-    }
+export const compareUint8 = (a: Uint8Array, b: Uint8Array): boolean => {
+  if (a.length !== b.length) {
+    return false;
   }
-  return a.length - b.length;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
 };
 

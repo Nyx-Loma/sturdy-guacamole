@@ -2,6 +2,7 @@ import { describe, expect, it, beforeAll } from 'vitest';
 import { createCryptoProvider } from '../src/provider';
 import { ensureSodium } from '../src/sodium/init';
 import { brandSymmetricKey } from '../src/types';
+import { deriveSymmetricKey } from '../src/primitives/symmetric';
 
 beforeAll(async () => {
   await ensureSodium();
@@ -35,6 +36,18 @@ describe('crypto provider', () => {
     const buf1 = await provider.randomBytes(32);
     const buf2 = await provider.randomBytes(32);
     expect(buf1).not.toEqual(buf2);
+  });
+
+  it('derives symmetric keys deterministically with same parameters', async () => {
+    const provider = createCryptoProvider();
+    const ikm = new TextEncoder().encode('shared secret');
+    const info = new TextEncoder().encode('context');
+    const salt = new TextEncoder().encode('salt');
+
+    const key1 = await provider.deriveSymmetricKey(ikm, info, salt);
+    const key2 = await deriveSymmetricKey(ikm, info, salt);
+
+    expect(key1).toEqual(key2);
   });
 });
 
