@@ -55,6 +55,7 @@ export interface RatchetHeader {
   publicKey: PublicKey;
   counter: number;
   previousCounter: number;
+  additionalData?: Uint8Array;
 }
 
 export const SYMMETRIC_KEY_BYTES = 32;

@@ -1,13 +1,13 @@
 import { brandSymmetricKey, PublicKey, RatchetHeader, RatchetState, SecretKey, SessionSecrets, SymmetricKey } from './types';
 import { hkdfExtract, hkdfExpand } from './hkdf';
-import { brandPublicKey } from './types';
-import { createSessionKeyPair, performHandshake } from './session';
-import { Envelope, Asymmetric, Random } from './index';
+import { createSessionKeyPair } from './session';
+import { Envelope, Asymmetric } from './index';
 
 const INFO_DH = new TextEncoder().encode('curly-spork dh');
 const INFO_CHAIN_SEND = new TextEncoder().encode('curly-spork chain send');
 const INFO_CHAIN_RECV = new TextEncoder().encode('curly-spork chain recv');
 const INFO_MESSAGE = new TextEncoder().encode('curly-spork message key');
+const MAX_SKIPPED = 2000;
 
 export interface DoubleRatchetState {
   rootKey: SymmetricKey;
@@ -16,6 +16,7 @@ export interface DoubleRatchetState {
   localKeyPair: { publicKey: PublicKey; secretKey: SecretKey };
   remotePublicKey: PublicKey;
   skipped: Map<string, SymmetricKey>;
+  maxSkipped?: number;
 }
 
 export interface RatchetEncryptResult {
@@ -30,14 +31,15 @@ export interface RatchetDecryptResult {
 
 const headerKey = (publicKey: PublicKey, counter: number) => `${Buffer.from(publicKey).toString('base64url')}:${counter}`;
 
-export const initialize = async (session: SessionSecrets, localKeyPair: { publicKey: PublicKey; secretKey: SecretKey }, remotePublicKey: PublicKey): Promise<DoubleRatchetState> => {
+export const initialize = async (session: SessionSecrets, localKeyPair: { publicKey: PublicKey; secretKey: SecretKey }, remotePublicKey: PublicKey, options?: { maxSkipped?: number }): Promise<DoubleRatchetState> => {
   return {
     rootKey: session.rootKey,
     send: { chainKey: session.chainKey, counter: 0 },
     receive: { chainKey: session.chainKey, counter: 0 },
     localKeyPair,
     remotePublicKey,
-    skipped: new Map()
+    skipped: new Map(),
+    maxSkipped: options?.maxSkipped ?? MAX_SKIPPED
   };
 };
 
@@ -63,6 +65,18 @@ const dhRatchet = async (state: DoubleRatchetState, remotePublicKey: PublicKey, 
     send: { chainKey: sendChainKey, counter: 0 },
     receive: { chainKey: recvChainKey, counter: 0 }
   };
+};
+
+const pruneSkipped = (state: DoubleRatchetState) => {
+  const limit = state.maxSkipped ?? MAX_SKIPPED;
+  if (state.skipped.size <= limit) {
+    return;
+  }
+  const excess = state.skipped.size - limit;
+  const keys = [...state.skipped.keys()].slice(0, excess);
+  for (const key of keys) {
+    state.skipped.delete(key);
+  }
 };
 
 export const encrypt = async (state: DoubleRatchetState, plaintext: Uint8Array): Promise<RatchetEncryptResult> => {
@@ -97,6 +111,13 @@ const trySkipped = (state: DoubleRatchetState, header: RatchetHeader): Symmetric
 };
 
 const storeSkipped = (state: DoubleRatchetState, header: RatchetHeader, messageKey: SymmetricKey) => {
+  const limit = state.maxSkipped ?? MAX_SKIPPED;
+  if (state.skipped.size >= limit) {
+    const [oldest] = state.skipped.keys();
+    if (oldest) {
+      state.skipped.delete(oldest);
+    }
+  }
   const key = headerKey(header.publicKey, header.counter);
   state.skipped.set(key, messageKey);
 };
@@ -123,6 +144,7 @@ export const decrypt = async (state: DoubleRatchetState, envelope: Envelope.Encr
     nextState.send = ratchetKeys.send;
     nextState.receive = ratchetKeys.receive;
     nextState.remotePublicKey = header.publicKey as PublicKey;
+    nextState.skipped.clear();
   }
 
   while (nextState.receive.counter < header.counter - 1) {
