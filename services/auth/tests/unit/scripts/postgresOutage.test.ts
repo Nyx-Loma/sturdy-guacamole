@@ -12,12 +12,17 @@ describe('postgresOutage script', () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ account_id: 'acc', device_id: 'dev' }) });
     vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal('console', { log: vi.fn(), error: vi.fn() });
+    vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    process.env.BASE_URL = 'http://localhost:8081';
+    process.env.COMPOSE_FILE = 'docker-compose.dev.yml';
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     execMock.mockReset();
     fetchMock.mockReset();
+    delete process.env.BASE_URL;
+    delete process.env.COMPOSE_FILE;
   });
 
   it('runs chaos script without throwing', async () => {

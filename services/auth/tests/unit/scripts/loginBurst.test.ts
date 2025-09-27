@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const fetchMock = vi.fn();
+const exitMock = vi.spyOn(process, 'exit');
 
 describe('loginBurst script', () => {
   beforeEach(() => {
@@ -8,13 +9,17 @@ describe('loginBurst script', () => {
     vi.stubGlobal('console', { log: vi.fn(), error: vi.fn() });
     process.env.LOAD_REQUESTS = '1';
     process.env.LOAD_CONCURRENCY = '1';
+    process.env.BASE_URL = 'http://localhost:8081';
+    exitMock.mockImplementation(() => undefined as never);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     delete process.env.LOAD_REQUESTS;
     delete process.env.LOAD_CONCURRENCY;
+    delete process.env.BASE_URL;
     fetchMock.mockReset();
+    exitMock.mockReset();
   });
 
   it('runs with stubbed fetch responses', async () => {
@@ -25,6 +30,7 @@ describe('loginBurst script', () => {
 
     await import('../../load/loginBurst');
     expect(fetchMock).toHaveBeenCalled();
+    expect(exitMock).not.toHaveBeenCalled();
   });
 });
 
