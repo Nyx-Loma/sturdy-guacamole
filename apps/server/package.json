@@ -1,5 +1,5 @@
 {
-  "name": "@arqivo/server",
+  "name": "@sanctum/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,8 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@arqivo/config": "workspace:*",
-    "@arqivo/transport": "workspace:*",
+    "@sanctum/config": "workspace:*",
+    "@sanctum/transport": "workspace:*",
     "@fastify/websocket": "^11.2.0",
     "fastify": "^5.6.1"
   }

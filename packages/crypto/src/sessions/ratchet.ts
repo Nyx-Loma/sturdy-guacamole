@@ -1,7 +1,7 @@
 import { DEFAULT_MAX_SKIPPED, INFO_CHAIN_RECV, INFO_CHAIN_SEND, INFO_DH, INFO_MESSAGE } from '../constants';
 import { hkdfExtract, hkdfExpand } from '../hkdf';
 import { deriveSharedSecret, generateKeyAgreementKeyPair } from '../primitives/asymmetric';
-import { brandSymmetricKey, DoubleRatchetState, PublicKey, RatchetHeader, RatchetState, SecretKey, SessionSecrets, SymmetricKey } from '../types';
+import { brandSymmetricKey, DoubleRatchetState, PublicKey, RatchetHeader, SecretKey, SessionSecrets, SymmetricKey } from '../types';
 import { seal, open, EncryptedEnvelope, EnvelopeHeader } from './envelope';
 import { ReplayError, skippedMessageLimitExceeded } from '../errors';
 
@@ -110,7 +110,7 @@ export const decrypt = async (state: DoubleRatchetState, envelope: EncryptedEnve
     return { plaintext, state };
   }
 
-  let nextState = { ...state };
+  const nextState = { ...state };
 
   if (header.publicKey.toString() !== state.remotePublicKey.toString()) {
     const newKeys = await generateKeyAgreementKeyPair();
@@ -144,5 +144,11 @@ export const decrypt = async (state: DoubleRatchetState, envelope: EncryptedEnve
     plaintext,
     state: nextState
   };
+};
+
+export const __testables = {
+  pruneSkipped,
+  storeSkipped,
+  trySkipped
 };
 

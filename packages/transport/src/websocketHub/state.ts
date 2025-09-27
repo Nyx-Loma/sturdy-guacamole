@@ -5,7 +5,7 @@ import { Connection } from '../connection';
 import { persistConnectionSnapshot } from './snapshot';
 import type { WebSocketHubOptions } from '../types';
 import { randomUUID } from 'node:crypto';
-import { logWithContext, redactToken, sanitizeError } from '../logging';
+import { logWithContext } from '../logging';
 
 const DEFAULT_MAX_BUFFERED_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RESUME_TTL_MS = 15 * 60_000;

@@ -43,7 +43,8 @@ export async function registerClient(socket: WebSocket, clientId: string, header
         return maybePromise;
       }
     }),
-    emitMetrics: (event: MetricsEvent) => state.metrics.record(event)
+    emitMetrics: (event: MetricsEvent) => state.metrics.record(event),
+    logger: state.options.logger
   });
 
   state.connections.set(clientId, connection);

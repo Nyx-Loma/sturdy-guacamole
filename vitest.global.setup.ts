@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, vi } from 'vitest';
+import sodium from 'libsodium-wrappers';
 
 const BASE_DATE = new Date('2025-01-01T00:00:00.000Z');
 const RNG_MODULUS = 2147483647;
@@ -11,6 +12,10 @@ const createSeededRandom = () => {
     return seed / RNG_MODULUS;
   };
 };
+
+beforeAll(async () => {
+  await sodium.ready;
+});
 
 beforeEach(() => {
   const randomFn = createSeededRandom();

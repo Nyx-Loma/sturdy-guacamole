@@ -27,7 +27,8 @@ export const decrypt = async (key: SymmetricKey, ciphertext: CipherText, nonce: 
 
 export const deriveSymmetricKey = async (ikm: Uint8Array, info: Uint8Array, subkeyId = 1, masterKey?: SymmetricKey): Promise<SymmetricKey> => {
   const sodium = await ensureSodium();
-  const ctx = info.subarray(0, 8).length === 8 ? info : sodium.crypto_generichash(8, info);
+  const ctxBuffer = info.subarray(0, 8);
+  const ctx = ctxBuffer.length === 8 ? Buffer.from(ctxBuffer).toString('utf8') : Buffer.from(sodium.crypto_generichash(8, info)).toString('utf8');
   const baseKey = masterKey ?? brandSymmetricKey(new Uint8Array(sodium.crypto_kdf_keygen()));
   const derived = sodium.crypto_kdf_derive_from_key(32, subkeyId, ctx, baseKey);
   return brandSymmetricKey(new Uint8Array(derived));

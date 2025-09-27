@@ -2,7 +2,18 @@ import type { Pool } from 'pg';
 import type { RefreshToken } from '../../domain/entities/tokens';
 import type { CreateRefreshTokenInput, TokensRepository } from '../../repositories/tokensRepo';
 
-const toToken = (row: any): RefreshToken => ({
+type RefreshTokenRow = {
+  id: string;
+  account_id: string;
+  device_id: string;
+  created_at: Date;
+  expires_at: Date;
+  revoked_at: Date | null;
+  user_agent: string | null;
+  ip: string | null;
+};
+
+const toToken = (row: RefreshTokenRow): RefreshToken => ({
   id: row.id,
   accountId: row.account_id,
   deviceId: row.device_id,

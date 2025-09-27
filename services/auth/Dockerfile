@@ -9,4 +9,4 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS dev
 WORKDIR /workspace
 COPY . .
-CMD ["pnpm", "--filter", "@arqivo/auth", "run", "start"]
+CMD ["pnpm", "--filter", "@sanctum/auth", "run", "start"]

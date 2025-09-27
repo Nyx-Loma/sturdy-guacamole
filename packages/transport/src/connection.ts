@@ -1,5 +1,7 @@
 import type { WebSocket } from 'ws';
 import type { AckMessage, MetricsEvent } from './types';
+import type { SafeLogger } from './logging';
+import { logWithContext, sanitizeError } from './logging';
 
 export interface ConnectionOptions {
   clientId: string;
@@ -11,6 +13,8 @@ export interface ConnectionOptions {
   maxQueueLength: number;
   send: (socket: WebSocket, payload: string | Buffer, callback?: (error?: Error | null) => void) => void | Promise<void>;
   emitMetrics?: (event: MetricsEvent) => void;
+  onError?: (error: unknown) => void;
+  logger?: SafeLogger;
 }
 
 export class Connection {
@@ -29,9 +33,12 @@ export class Connection {
   private readonly maxQueueLength: number;
   private readonly sendImpl: (socket: WebSocket, payload: string | Buffer, callback?: (error?: Error | null) => void) => void | Promise<void>;
   private readonly emitMetrics?: (event: MetricsEvent) => void;
+  private readonly onError?: (error: unknown) => void;
+  private readonly logger?: SafeLogger;
 
   private readonly sendQueue: Array<string | Buffer> = [];
   private sending = false;
+  private hadFatalSendError = false;
 
   sequence = 0;
   serverSequence = 0;
@@ -48,12 +55,18 @@ export class Connection {
     this.maxQueueLength = options.maxQueueLength;
     this.sendImpl = options.send;
     this.emitMetrics = options.emitMetrics;
+    this.onError = options.onError;
+    this.logger = options.logger;
     this.lastSeenAt = Date.now();
   }
 
   async enqueue(payload: string | Buffer) {
     if (this.sendQueue.length >= this.maxQueueLength) {
       this.close(1013, 'overloaded');
+      return;
+    }
+    // if a fatal send error already occurred, drop follow-up enqueues
+    if (this.hadFatalSendError) {
       return;
     }
     this.sendQueue.push(payload);
@@ -63,7 +76,7 @@ export class Connection {
   }
 
   async flush() {
-    if (this.sending) return;
+    if (this.sending || this.hadFatalSendError) return;
     this.sending = true;
     while (this.sendQueue.length > 0) {
       const payload = this.sendQueue.shift();
@@ -71,7 +84,7 @@ export class Connection {
       try {
         const maybePromise = this.sendImpl(this.socket, payload, (error) => {
           if (error) {
-            this.close(1011, 'send_failure');
+            this.handleSendFailure(error);
           }
         });
         if (maybePromise && typeof (maybePromise as Promise<void>).then === 'function') {
@@ -83,8 +96,11 @@ export class Connection {
           accountId: this.accountId,
           deviceId: this.deviceId
         });
-      } catch {
-        this.close(1011, 'send_failure');
+      } catch (error) {
+        this.handleSendFailure(error);
+        break;
+      }
+      if (this.hadFatalSendError) {
         break;
       }
     }
@@ -105,5 +121,31 @@ export class Connection {
 
   ack(id: string, ack: AckMessage) {
     void this.enqueue(JSON.stringify(ack));
+  }
+
+  private handleSendFailure(error: unknown) {
+    if (this.hadFatalSendError) {
+      return;
+    }
+    this.hadFatalSendError = true;
+    this.sendQueue.length = 0;
+    const failure = error instanceof Error ? error : new Error(error ? String(error) : 'send_failure');
+    const sanitized = sanitizeError(failure);
+    this.emitMetrics?.({
+      type: 'ws_send_error',
+      clientId: this.id,
+      accountId: this.accountId,
+      deviceId: this.deviceId,
+      errorName: sanitized.name,
+      errorMessage: sanitized.message
+    });
+    logWithContext(this.logger, 'error', 'connection_send_failure', {
+      clientId: this.id,
+      accountId: this.accountId,
+      deviceId: this.deviceId,
+      error: sanitized
+    });
+    this.onError?.(failure);
+    this.close(1011, 'send_failure');
   }
 }

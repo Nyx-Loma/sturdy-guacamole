@@ -23,13 +23,18 @@ export interface RecoveryBlobRecord {
     memoryCost: number;
     parallelism: number;
   };
+  profile: 'desktop' | 'mobile';
   cipherLength: number;
   padLength: number;
   verifier?: Uint8Array | null;
+  kekVerifier?: Uint8Array | null;
+  ciphertextMac?: Uint8Array | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date | null;
+  previousBlobId?: string | null;
+  sizeBytes?: number;
 }
 
 

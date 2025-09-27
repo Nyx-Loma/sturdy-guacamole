@@ -2,7 +2,17 @@ import type { Pool } from 'pg';
 import type { Device } from '../../domain/entities/device';
 import type { DevicesRepository, CreateDeviceInput } from '../../repositories/devicesRepo';
 
-const toDevice = (row: any): Device => ({
+type DeviceRow = {
+  id: string;
+  account_id: string;
+  public_key: string;
+  display_name: string | null;
+  status: Device['status'];
+  created_at: Date;
+  last_seen_at: Date | null;
+};
+
+const toDevice = (row: DeviceRow): Device => ({
   id: row.id,
   accountId: row.account_id,
   publicKey: row.public_key,

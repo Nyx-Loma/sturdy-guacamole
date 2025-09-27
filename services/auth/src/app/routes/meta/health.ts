@@ -6,6 +6,7 @@ export const registerHealthRoute = async (
   app: FastifyInstance,
   _context: { config: Config; container: Container }
 ) => {
+  void _context;
   app.get('/health', async () => ({ status: 'ok' }));
 };
 

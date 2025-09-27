@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Container } from '../../../container';
-import { registerDevice } from '../../../usecases/devices/register';
 
 const RegisterSchema = z.object({
   account_id: z.string().uuid().optional(),
@@ -14,22 +13,25 @@ export const devicesRoutes = async (
   { container }: { container: Container }
 ) => {
   app.post('/v1/devices/register', async (request, reply) => {
-    const body = RegisterSchema.parse(request.body);
+    const parsed = RegisterSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'validation_error', issues: parsed.error.issues });
+    }
+    const body = parsed.data;
     let accountId = body.account_id;
     if (!accountId) {
       const account = await container.services.accounts.createAnonymous();
       accountId = account.id;
     }
-    const device = await registerDevice({
-      devicesRepo: container.repos.devices,
-      limits: container.config,
-      accountsRepo: container.repos.accounts
-    })({
-      accountId,
-      publicKey: body.public_key,
-      displayName: body.display_name
-    });
-    reply.status(201).send({ device_id: device.id, account_id: accountId });
+    try {
+      const device = await container.services.devices.register(accountId, body.public_key, body.display_name);
+      reply.status(201).send({ device_id: device.id, account_id: accountId });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'RateLimitError') {
+        return reply.status(429).send({ error: 'RATE_LIMIT', message: error.message });
+      }
+      return reply.status(503).send({ error: 'DEVICE_REGISTRATION_FAILED' });
+    }
   });
 };
 

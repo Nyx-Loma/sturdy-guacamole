@@ -22,26 +22,50 @@ import {
 import { getPool } from '../adapters/postgres/pool';
 import { createKeyResolver } from '../domain/keys';
 import { createCaptchaService } from '../domain/captcha/service';
+import { createRecoveryBackupService } from '../domain/services/recoveryBackup';
+import { AuthMetrics } from '../domain/metrics';
+import { createRecoveryService } from '../domain/services/recoveryService';
+
+type AccountsRepo = ReturnType<typeof createInMemoryAccountsRepository> | ReturnType<typeof createPostgresAccountsRepository>;
+type DevicesRepo = ReturnType<typeof createInMemoryDevicesRepository> | ReturnType<typeof createPostgresDevicesRepository>;
+type TokensRepo = ReturnType<typeof createInMemoryTokensRepository> | ReturnType<typeof createPostgresTokensRepository>;
+type PairingRepo = ReturnType<typeof createInMemoryPairingRepository> | ReturnType<typeof createPostgresPairingRepository>;
+type RecoveryRepo = ReturnType<typeof createInMemoryRecoveryRepository> | ReturnType<typeof createPostgresRecoveryRepository>;
+
+type BackupService = ReturnType<typeof createRecoveryBackupService>;
+
+type DeviceService = ReturnType<typeof createDeviceService> & {
+  revokeAllForAccount(accountId: string, exceptDeviceId?: string): Promise<void>;
+};
+
+type TokenService = ReturnType<typeof createTokenService> & {
+  revokeAllForAccount(tokens: Pick<TokensRepo, 'revokeAllForAccount'>, accountId: string): Promise<void>;
+};
 
 export interface Container {
   config: Config;
   logger: Logger;
   repos: {
-    accounts: ReturnType<typeof createInMemoryAccountsRepository> | ReturnType<typeof createPostgresAccountsRepository>;
-    devices: ReturnType<typeof createInMemoryDevicesRepository> | ReturnType<typeof createPostgresDevicesRepository>;
-    tokens: ReturnType<typeof createInMemoryTokensRepository> | ReturnType<typeof createPostgresTokensRepository>;
-    pairing: ReturnType<typeof createInMemoryPairingRepository> | ReturnType<typeof createPostgresPairingRepository>;
-    recovery: ReturnType<typeof createInMemoryRecoveryRepository> | ReturnType<typeof createPostgresRecoveryRepository>;
+    accounts: AccountsRepo;
+    devices: DevicesRepo;
+    tokens: TokensRepo;
+    pairing: PairingRepo;
+    recovery: RecoveryRepo;
   };
   services: {
-    tokens: ReturnType<typeof createTokenService>;
+    tokens: TokenService;
     deviceAssertion: ReturnType<typeof createDeviceAssertionService>;
     accounts: ReturnType<typeof createAccountService>;
-    devices: ReturnType<typeof createDeviceService>;
+    devices: DeviceService;
     pairing: ReturnType<typeof createPairingService>;
     captcha: ReturnType<typeof createCaptchaService>;
+    recoveryBackup: BackupService;
+    recovery: ReturnType<typeof createRecoveryService>;
+    metrics: AuthMetrics;
   };
 }
+
+const sharedMetrics = new AuthMetrics();
 
 const buildRepositories = (config: Config) => {
   if (config.STORAGE_DRIVER === 'postgres') {
@@ -64,18 +88,81 @@ const buildRepositories = (config: Config) => {
   } as const;
 };
 
+const extendDeviceService = (service: ReturnType<typeof createDeviceService>, devices: DevicesRepo): DeviceService => ({
+  ...service,
+  revokeAllForAccount: async (accountId, exceptDeviceId) => {
+    const deviceList = await devices.findByAccount(accountId);
+    await Promise.all(
+      deviceList.map((device) => {
+        if (device.id === exceptDeviceId) {
+          return devices.update(device.id, { status: 'active' });
+        }
+        if (device.status !== 'revoked') {
+          return devices.update(device.id, { status: 'revoked' });
+        }
+        return Promise.resolve();
+      })
+    );
+  }
+});
+
+const extendTokenService = (service: ReturnType<typeof createTokenService>): TokenService => ({
+  ...service,
+  revokeAllForAccount: async (tokensRepo, accountId) => {
+    await tokensRepo.revokeAllForAccount(accountId);
+  }
+});
+
 export const createContainer = async ({ config, logger }: { config: Config; logger: Logger }): Promise<Container> => {
   const repos = buildRepositories(config);
-  const tokenService = createTokenService({ config, keyResolver: createKeyResolver(config) });
+  const tokenService = extendTokenService(createTokenService({ config, keyResolver: createKeyResolver(config) }));
   const accountService = createAccountService(repos.accounts);
-  const deviceService = createDeviceService(repos.devices, config.DEVICE_MAX_PER_ACCOUNT);
+  const deviceService = extendDeviceService(createDeviceService(repos.devices, config.DEVICE_MAX_PER_ACCOUNT), repos.devices);
   const nonceStore = config.REDIS_URL
     ? createRedisNonceStore(getRedisClient(config))
     : createMemoryNonceStore();
   const deviceAssertion = createDeviceAssertionService(nonceStore, 60_000);
   const pairingCache = config.REDIS_URL ? createRedisPairingStore(getRedisClient(config)) : undefined;
   const pairingService = createPairingService(repos.pairing, config.PAIRING_TOKEN_TTL_SECONDS, pairingCache);
-  const captchaService = createCaptchaService(config);
+  const captchaService = createCaptchaService(config, { metrics: sharedMetrics });
+  const recoveryService = createRecoveryService(
+    repos.recovery,
+    {
+      policy: {
+        timeCost: config.ARGON2_TIME_COST,
+        memoryCost: config.ARGON2_MEMORY_COST,
+        parallelism: config.ARGON2_PARALLELISM,
+        version: config.RECOVERY_CODE_VERSION
+      },
+      backup: {
+        dummyCipherBytes: config.RECOVERY_BACKUP_DUMMY_CIPHER_BYTES,
+        dummyNonceBytes: config.RECOVERY_BACKUP_DUMMY_NONCE_BYTES,
+        dummySaltBytes: config.RECOVERY_BACKUP_DUMMY_SALT_BYTES,
+        dummyAssociatedDataBytes: config.RECOVERY_BACKUP_DUMMY_AD_BYTES,
+        dummyArgon: {
+          timeCost: config.RECOVERY_BACKUP_ARGON_TIME_COST,
+          memoryCost: config.RECOVERY_BACKUP_ARGON_MEMORY_COST,
+          parallelism: config.RECOVERY_BACKUP_ARGON_PARALLELISM
+        },
+        minLatencyMs: config.RECOVERY_BACKUP_MIN_LATENCY_MS,
+        argonFloor: {
+          memoryDesktop: config.RECOVERY_ARGON_MIN_MEMORY_DESKTOP,
+          memoryMobile: config.RECOVERY_ARGON_MIN_MEMORY_MOBILE,
+          timeCost: config.RECOVERY_ARGON_MIN_TIME_COST,
+          parallelism: config.RECOVERY_ARGON_MIN_PARALLELISM
+        },
+        retainBlobs: config.RECOVERY_BACKUP_RETAIN_BLOBS,
+        kmsPepper: config.RECOVERY_KMS_PEPPER
+          ? Buffer.from(config.RECOVERY_KMS_PEPPER, 'base64')
+          : undefined
+      },
+      metrics: sharedMetrics
+    },
+    {
+      revokeTokens: (accountId: string) => tokenService.revokeAllForAccount(repos.tokens, accountId),
+      revokeDevices: (accountId: string, exceptDeviceId?: string) => deviceService.revokeAllForAccount(accountId, exceptDeviceId)
+    }
+  );
 
   return {
     config,
@@ -87,7 +174,10 @@ export const createContainer = async ({ config, logger }: { config: Config; logg
       accounts: accountService,
       devices: deviceService,
       pairing: pairingService,
-      captcha: captchaService
+      captcha: captchaService,
+      recoveryBackup: recoveryService.backup,
+      recovery: recoveryService,
+      metrics: sharedMetrics
     }
   };
 };

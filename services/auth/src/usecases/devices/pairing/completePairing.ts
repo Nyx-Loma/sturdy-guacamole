@@ -1,5 +1,4 @@
 import type { Container } from '../../../container';
-import { ExpiredPairingError, NotFoundError } from '../../../domain/errors';
 
 interface CompletePairingInput {
   pairingToken: string;

@@ -73,9 +73,9 @@ const pruneSkipped = (state: DoubleRatchetState) => {
     return;
   }
   const excess = state.skipped.size - limit;
-  const keys = [...state.skipped.keys()].slice(0, excess);
-  for (const key of keys) {
-    state.skipped.delete(key);
+  const keys = [...state.skipped.keys()].sort();
+  for (let i = 0; i < excess; i += 1) {
+    state.skipped.delete(keys[i]);
   }
 };
 
@@ -112,14 +112,11 @@ const trySkipped = (state: DoubleRatchetState, header: RatchetHeader): Symmetric
 
 const storeSkipped = (state: DoubleRatchetState, header: RatchetHeader, messageKey: SymmetricKey) => {
   const limit = state.maxSkipped ?? MAX_SKIPPED;
-  if (state.skipped.size >= limit) {
-    const [oldest] = state.skipped.keys();
-    if (oldest) {
-      state.skipped.delete(oldest);
-    }
-  }
   const key = headerKey(header.publicKey, header.counter);
   state.skipped.set(key, messageKey);
+  if (state.skipped.size > limit) {
+    pruneSkipped(state);
+  }
 };
 
 export const decrypt = async (state: DoubleRatchetState, envelope: Envelope.EncryptedEnvelope): Promise<RatchetDecryptResult> => {
@@ -134,7 +131,7 @@ export const decrypt = async (state: DoubleRatchetState, envelope: Envelope.Encr
     return { plaintext, state };
   }
 
-  let nextState = { ...state };
+  const nextState = { ...state };
 
   if (header.publicKey.toString() !== state.remotePublicKey.toString()) {
     const newKeys = await createSessionKeyPair();
@@ -168,5 +165,14 @@ export const decrypt = async (state: DoubleRatchetState, envelope: Envelope.Encr
     plaintext,
     state: nextState
   };
+};
+
+export const __testables = {
+  headerKey,
+  deriveChainKeys,
+  deriveMessageKey,
+  pruneSkipped,
+  storeSkipped,
+  trySkipped
 };
 

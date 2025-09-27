@@ -7,7 +7,7 @@ import { loadConfig } from '../src/config';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const run = async () => {
+export const runMigrations = async () => {
   const config = loadConfig();
   if (config.STORAGE_DRIVER !== 'postgres') {
     console.log('Skipping migrations: STORAGE_DRIVER != postgres');
@@ -34,7 +34,15 @@ const run = async () => {
   }
 };
 
-run().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+const isDirectInvocation = process.argv[1] && (
+  process.argv[1] === __filename ||
+  process.argv[1]?.endsWith('scripts/migrate.ts') ||
+  process.argv[1]?.endsWith('scripts/migrate.js')
+);
+
+if (isDirectInvocation) {
+  runMigrations().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

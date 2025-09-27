@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import type { Logger } from 'pino';
 import { registerRoutes } from './routes';
@@ -5,7 +6,7 @@ import { loadConfig } from '../config';
 import { createLogger } from '../logging';
 import { createContainer } from '../container';
 
-interface ServerOptions {
+export interface ServerOptions {
   config: import('../config').Config;
   logger: Logger;
   container: unknown;
@@ -16,7 +17,12 @@ export const createServer = async ({ config, logger, container }: ServerOptions)
   await registerRoutes(app, { config, container });
   return {
     listen: async () => {
-      await app.listen({ host: config.HTTP_HOST, port: config.HTTP_PORT });
+      try {
+        await app.listen({ host: config.HTTP_HOST, port: config.HTTP_PORT });
+      } catch (error) {
+        logger.error({ err: error }, 'failed to bind auth server');
+        throw error;
+      }
       return app;
     },
     close: async () => app.close(),
@@ -24,7 +30,13 @@ export const createServer = async ({ config, logger, container }: ServerOptions)
   };
 };
 
-if (import.meta.url === process.argv[1] || process.argv[1]?.endsWith('src/app/server.ts')) {
+const isDirect = process.argv[1] && (
+  process.argv[1] === fileURLToPath(import.meta.url) ||
+  process.argv[1]?.endsWith('src/app/server.ts') ||
+  process.argv[1]?.endsWith('dist/app/server.js')
+);
+
+if (isDirect) {
   (async () => {
     const config = loadConfig();
     const logger = createLogger({ level: config.LOG_LEVEL });

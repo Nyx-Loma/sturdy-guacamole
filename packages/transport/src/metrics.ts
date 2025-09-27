@@ -178,6 +178,11 @@ export class Metrics {
       case 'ws_frame_sent':
         this.framesSent.labels(accountId, deviceId).inc();
         break;
+      case 'ws_send_error':
+        this.closes
+          .labels(accountId, deviceId, String(event.closeCode ?? '1011'), event.reason ?? 'send_failure')
+          .inc();
+        break;
       case 'ws_replay_start':
         this.replayStart.labels(accountId, deviceId).inc();
         break;

@@ -53,7 +53,14 @@ const ConfigSchema = z.object({
   RECOVERY_BACKUP_DUMMY_AD_BYTES: z.coerce.number().int().positive().default(32),
   RECOVERY_BACKUP_ARGON_TIME_COST: z.coerce.number().int().positive().default(3),
   RECOVERY_BACKUP_ARGON_MEMORY_COST: z.coerce.number().int().positive().default(262144),
-  RECOVERY_BACKUP_ARGON_PARALLELISM: z.coerce.number().int().positive().default(2)
+  RECOVERY_BACKUP_ARGON_PARALLELISM: z.coerce.number().int().positive().default(2),
+  RECOVERY_BACKUP_MIN_LATENCY_MS: z.coerce.number().int().nonnegative().default(60),
+  RECOVERY_ARGON_MIN_MEMORY_DESKTOP: z.coerce.number().int().positive().default(524288),
+  RECOVERY_ARGON_MIN_MEMORY_MOBILE: z.coerce.number().int().positive().default(262144),
+  RECOVERY_ARGON_MIN_TIME_COST: z.coerce.number().int().positive().default(3),
+  RECOVERY_ARGON_MIN_PARALLELISM: z.coerce.number().int().positive().default(2),
+  RECOVERY_BACKUP_RETAIN_BLOBS: z.coerce.number().int().positive().default(2),
+  RECOVERY_KMS_PEPPER: z.string().optional()
 }).superRefine((cfg, ctx) => {
   if (cfg.STORAGE_DRIVER === 'postgres' && !cfg.POSTGRES_URL) {
     ctx.addIssue({

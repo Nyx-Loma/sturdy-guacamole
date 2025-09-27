@@ -55,13 +55,17 @@ CREATE TABLE IF NOT EXISTS auth.recovery_blobs (
   associated_data BYTEA NOT NULL,
   salt BYTEA NOT NULL,
   argon_params JSONB NOT NULL,
+  profile TEXT NOT NULL,
   cipher_length INTEGER NOT NULL,
   pad_length INTEGER NOT NULL,
   verifier BYTEA,
+  kek_verifier BYTEA,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  deleted_at TIMESTAMPTZ
+  deleted_at TIMESTAMPTZ,
+  previous_blob_id UUID,
+  size_bytes INTEGER
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS recovery_blobs_active_account_idx

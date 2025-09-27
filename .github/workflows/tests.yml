@@ -1,0 +1,288 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: test
+  CI: true
+  NODE_OPTIONS: --max_old_space_size=3072
+
+jobs:
+  setup:
+    name: Install & cache
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Cache tooling
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.vite
+            .eslintcache
+          key: tooling-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml', '**/vitest.config.*', '**/package.json') }}
+          restore-keys: |
+            tooling-${{ runner.os }}-
+
+  lint:
+    name: Lint
+    needs: setup
+    runs-on: ubuntu-latest
+    env:
+      TURNSTILE_MODE: mock
+      KMS_MODE: inmemory
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+
+  typecheck:
+    name: Type Check
+    needs: setup
+    runs-on: ubuntu-latest
+    env:
+      TURNSTILE_MODE: mock
+      KMS_MODE: inmemory
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc -b --noEmit
+
+  unit:
+    name: Unit Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard: [1, 2]
+    env:
+      TURNSTILE_MODE: mock
+      KMS_MODE: inmemory
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+      - name: Run unit shard ${{ matrix.shard }}
+        run: |
+          pnpm vitest run \
+            --coverage=false \
+            --reporter=default --reporter=junit \
+            --outputFile=junit-unit-${{ matrix.shard }}.xml
+      - name: Upload unit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-unit-${{ matrix.shard }}
+          path: junit-unit-${{ matrix.shard }}.xml
+
+  integration:
+    name: Integration Tests
+    needs: [setup, lint, typecheck, unit]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanctum
+          POSTGRES_PASSWORD: sanctum
+          POSTGRES_DB: sanctum
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U sanctum -d sanctum"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd="redis-cli ping || exit 1"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      TURNSTILE_MODE: mock
+      KMS_MODE: inmemory
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U sanctum && break;
+            sleep 2;
+          done
+
+      - name: Wait for Redis
+        run: |
+          for i in {1..30}; do
+            redis-cli -h localhost ping && break;
+            sleep 2;
+          done
+
+      - name: Run migrations
+        run: pnpm --filter services/auth run migrate -- --verbose
+
+      - name: Integration tests
+        run: |
+          pnpm vitest run \
+            --coverage=false \
+            --reporter=default --reporter=junit \
+            --outputFile=junit-integration.xml \
+            --retry=2 --retryDelay=200 \
+            --include services/auth/src/tests/integration/**/*.test.ts
+
+      - name: Upload integration reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-integration
+          path: junit-integration.xml
+
+      - name: Upload service logs on failure
+        if: failure()
+        run: |
+          docker logs ${{ job.services.postgres.id }} > postgres.log
+          docker logs ${{ job.services.redis.id }} > redis.log
+        shell: bash
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: |
+            postgres.log
+            redis.log
+
+  coverage:
+    name: Coverage & Thresholds
+    needs: [unit, integration]
+    runs-on: ubuntu-latest
+    env:
+      TURNSTILE_MODE: mock
+      KMS_MODE: inmemory
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run coverage suite
+        run: pnpm coverage
+
+      - name: Enforce coverage thresholds
+        run: pnpm run check:coverage
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+
+  nightly:
+    name: Nightly Smoke
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      TURNSTILE_MODE: mock
+      KMS_MODE: inmemory
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+      - name: k6 smoke
+        run: |
+          pnpm run test:load:smoke || true
+          if [ -f k6-results.json ]; then
+            mv k6-results.json nightly-k6.json
+          fi
+      - name: Mutation tests (targeted)
+        run: |
+          pnpm run test:mut:targeted || true
+          if [ -f mutation-report.html ]; then
+            mv mutation-report.html nightly-mutation.html
+          fi
+      - name: Upload nightly artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-artifacts
+          path: |
+            nightly-k6.json
+            nightly-mutation.html
+

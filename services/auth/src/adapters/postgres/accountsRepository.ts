@@ -2,11 +2,17 @@ import type { Pool } from 'pg';
 import type { Account, AccountStatus } from '../../domain/entities/account';
 import type { AccountsRepository } from '../../repositories/accountsRepo';
 
+type AccountRow = {
+  id: string;
+  created_at: Date;
+  status: AccountStatus;
+};
+
 export const createPostgresAccountsRepository = (pool: Pool): AccountsRepository => {
-  const toAccount = (row: any): Account => ({
+  const toAccount = (row: AccountRow): Account => ({
     id: row.id,
     createdAt: row.created_at,
-    status: row.status as AccountStatus
+    status: row.status
   });
 
   return {

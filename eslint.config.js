@@ -9,17 +9,17 @@ export default tseslint.config(
     ignores: ['dist/**', 'node_modules/**'],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        projectService: false,
         tsconfigRootDir: import.meta.dirname
       }
     }
   },
   {
-    files: ['vitest.config.ts'],
-    languageOptions: {
-      parserOptions: {
-        projectService: false
-      }
+    files: ['**/*.test.ts', '**/__tests__/**/*.ts', '**/tests/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-var-requires': 'off',
+      'prefer-const': 'off'
     }
   }
 );

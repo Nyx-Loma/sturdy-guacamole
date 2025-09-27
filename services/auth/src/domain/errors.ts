@@ -61,4 +61,18 @@ export class InvalidRecoveryCodeError extends AuthError {
   }
 }
 
+export class RecoveryPolicyError extends AuthError {
+  constructor(message = 'recovery backup violates policy') {
+    super(message, 'RECOVERY_POLICY');
+    this.name = 'RecoveryPolicyError';
+  }
+}
+
+export class RecoveryValidationError extends AuthError {
+  constructor(message = 'recovery backup payload invalid') {
+    super(message, 'RECOVERY_VALIDATION');
+    this.name = 'RecoveryValidationError';
+  }
+}
+
 

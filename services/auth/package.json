@@ -1,5 +1,5 @@
 {
-  "name": "@arqivo/auth",
+  "name": "@sanctum/auth",
   "private": true,
   "type": "module",
   "scripts": {

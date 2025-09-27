@@ -11,30 +11,9 @@ const hash512 = (message: Uint8Array) => {
 
 beforeAll(() => {
   hashes.sha512 = hash512;
-  edUtils.sha512Sync ??= hash512;
-  edUtils.sha512 ??= async (message: Uint8Array) => hash512(message);
-});
-
-beforeAll(async () => {
   edUtils.sha512Sync = hash512;
   edUtils.sha512 = async (message: Uint8Array) => hash512(message);
 });
-
-const createStore = () => {
-  const store = new Map<string, number>();
-  return {
-    async issue(deviceId: string, nonce: string, ttlMs: number) {
-      store.set(`${deviceId}:${nonce}`, Date.now() + ttlMs);
-    },
-    async consume(deviceId: string, nonce: string) {
-      const key = `${deviceId}:${nonce}`;
-      const expires = store.get(key);
-      if (!expires) return false;
-      store.delete(key);
-      return expires >= Date.now();
-    }
-  };
-};
 
 describe('device assertion service', () => {
   it('accepts valid signature once', async () => {

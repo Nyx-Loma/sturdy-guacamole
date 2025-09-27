@@ -81,7 +81,7 @@ export const createTokenService = ({ config, keyResolver, leewaySeconds = config
         if (error instanceof InvalidSignatureError) {
           continue;
         }
-        if (error instanceof Error && error.message?.includes('signature verification failed')) {
+        if (error instanceof Error && (error.message?.includes('signature verification failed') || error.message?.includes('JWT Claim failed'))) {
           continue;
         }
         throw new InvalidSignatureError('invalid access token');

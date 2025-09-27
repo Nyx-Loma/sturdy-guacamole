@@ -28,7 +28,7 @@ Detailed threat modeling and API docs will follow as the implementation matures.
 
 ### Generating a Session
 ```ts
-import { Session } from '@arqivo/crypto';
+import { Session } from '@sanctum/crypto';
 
 const alice = await Session.createSessionKeyPair();
 const bob = await Session.createSessionKeyPair();
@@ -39,7 +39,7 @@ const bobSecrets = await Session.performHandshake(bob.secretKey, alice.publicKey
 
 ### Encrypting a Message Envelope
 ```ts
-import { Envelope } from '@arqivo/crypto';
+import { Envelope } from '@sanctum/crypto';
 
 const message = new TextEncoder().encode('hello');
 const envelope = await Envelope.seal(aliceSecrets.chainKey, message);
@@ -48,7 +48,7 @@ const decrypted = await Envelope.open(bobSecrets.chainKey, envelope);
 
 ### Signing and Verifying
 ```ts
-import { Asymmetric } from '@arqivo/crypto';
+import { Asymmetric } from '@sanctum/crypto';
 
 const { publicKey, secretKey } = await Asymmetric.generateSigningKeyPair();
 const message = new TextEncoder().encode('sign me');

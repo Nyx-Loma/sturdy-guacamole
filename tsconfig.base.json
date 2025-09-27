@@ -14,8 +14,9 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@arqivo/config": ["packages/config/src/index.ts"],
-      "@arqivo/transport": ["packages/transport/src/index.ts"]
+      "@sanctum/config": ["packages/config/src/index.ts"],
+      "@sanctum/transport": ["packages/transport/src/index.ts"],
+      "@sanctum/crypto": ["packages/crypto/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "apps/**/*.ts", "services/**/*.ts", "vitest.config.ts"],

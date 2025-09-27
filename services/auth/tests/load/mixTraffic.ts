@@ -78,7 +78,7 @@ async function main() {
   const start = Date.now();
   while (Date.now() - start < durationMs) {
     await Promise.all(
-      contexts.map(async (ctx, idx) => {
+      contexts.map(async (ctx) => {
         const roll = Math.random();
         if (roll < 0.7) {
           await login(ctx);

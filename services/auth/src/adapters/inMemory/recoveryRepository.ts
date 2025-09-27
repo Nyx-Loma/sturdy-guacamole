@@ -36,7 +36,16 @@ export const createInMemoryRecoveryRepository = (): RecoveryRepository => {
       const id = record.id ?? randomUUID();
       const createdAt = record.createdAt ?? new Date();
       const updatedAt = record.updatedAt ?? createdAt;
-      blobStore.set(id, { ...record, id, createdAt, updatedAt });
+      const existing = blobStore.get(id);
+      const finalRecord: RecoveryBlobRecord = {
+        ...record,
+        id,
+        createdAt,
+        updatedAt,
+        previousBlobId: record.previousBlobId ?? existing?.previousBlobId ?? null,
+        sizeBytes: record.sizeBytes ?? existing?.sizeBytes
+      };
+      blobStore.set(id, finalRecord);
     },
 
     async getActiveBlob(accountId) {
@@ -48,8 +57,28 @@ export const createInMemoryRecoveryRepository = (): RecoveryRepository => {
       return null;
     },
 
+    async getPreviousBlob(accountId) {
+      let latest: RecoveryBlobRecord | null = null;
+      for (const blob of blobStore.values()) {
+        if (blob.accountId === accountId && !blob.isActive && !blob.deletedAt) {
+          if (!latest || blob.updatedAt > latest.updatedAt) {
+            latest = blob;
+          }
+        }
+      }
+      return latest;
+    },
+
     async getBlobById(id) {
       return blobStore.get(id) ?? null;
+    },
+
+    async listBlobs(accountId) {
+      return [...blobStore.values()].filter((blob) => blob.accountId === accountId);
+    },
+
+    async deleteBlob(id) {
+      blobStore.delete(id);
     }
   };
 };

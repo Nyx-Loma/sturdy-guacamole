@@ -2,7 +2,20 @@ import type { Pool } from 'pg';
 import type { PairingToken } from '../../domain/entities/pairing';
 import type { CreatePairingTokenInput, PairingRepository } from '../../repositories/pairingRepo';
 
-const toPairing = (row: any): PairingToken => ({
+type PairingRow = {
+  token: string;
+  account_id: string;
+  primary_device_id: string;
+  nonce: string;
+  created_at: Date;
+  expires_at: Date;
+  used: boolean;
+  used_at: Date | null;
+  new_device_public_key: string | null;
+  pending_display_name: string | null;
+};
+
+const toPairing = (row: PairingRow): PairingToken => ({
   token: row.token,
   accountId: row.account_id,
   primaryDeviceId: row.primary_device_id,
@@ -11,7 +24,7 @@ const toPairing = (row: any): PairingToken => ({
   expiresAt: row.expires_at,
   used: row.used,
   usedAt: row.used_at ?? undefined,
-  pendingPublicKey: row.pending_public_key ?? undefined,
+  pendingPublicKey: row.new_device_public_key ?? undefined,
   pendingDisplayName: row.pending_display_name ?? undefined
 });
 
@@ -20,7 +33,7 @@ export const createPostgresPairingRepository = (pool: Pool): PairingRepository =
     const result = await pool.query(
       `INSERT INTO auth.pairing_tokens (token, account_id, primary_device_id, nonce, created_at, expires_at, used, new_device_public_key, pending_display_name)
        VALUES ($1, $2, $3, $4, $5, $6, false, NULL, NULL)
-       RETURNING token, account_id, primary_device_id, nonce, created_at, expires_at, used, new_device_public_key, pending_display_name`,
+       RETURNING token, account_id, primary_device_id, nonce, created_at, expires_at, used, NULL::TIMESTAMPTZ AS used_at, new_device_public_key, pending_display_name`,
       [
         input.token,
         input.accountId,
@@ -35,7 +48,7 @@ export const createPostgresPairingRepository = (pool: Pool): PairingRepository =
 
   async findByToken(token) {
     const result = await pool.query(
-      `SELECT token, account_id, primary_device_id, nonce, created_at, expires_at, used, new_device_public_key, pending_display_name
+      `SELECT token, account_id, primary_device_id, nonce, created_at, expires_at, used, NULL::TIMESTAMPTZ AS used_at, new_device_public_key, pending_display_name
        FROM auth.pairing_tokens WHERE token = $1`,
       [token]
     );
@@ -46,7 +59,7 @@ export const createPostgresPairingRepository = (pool: Pool): PairingRepository =
   async update(token, record) {
     await pool.query(
       `UPDATE auth.pairing_tokens
-         SET pending_public_key = $2,
+         SET new_device_public_key = $2,
              pending_display_name = $3
        WHERE token = $1`,
       [token, record.pendingPublicKey ?? null, record.pendingDisplayName ?? null]
@@ -54,6 +67,6 @@ export const createPostgresPairingRepository = (pool: Pool): PairingRepository =
   },
 
   async markUsed(token) {
-    await pool.query('UPDATE auth.pairing_tokens SET used = true, used_at = now() WHERE token = $1', [token]);
+    await pool.query('UPDATE auth.pairing_tokens SET used = true WHERE token = $1', [token]);
   }
 });

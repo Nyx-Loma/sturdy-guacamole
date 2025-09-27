@@ -35,7 +35,9 @@ const projects = [
     test: {
       include: [
         'packages/**/__tests__/**/*.test.ts',
-        'services/**/src/tests/unit/**/*.test.ts'
+        'services/**/src/tests/unit/**/*.test.ts',
+        'services/**/tests/unit/**/*.test.ts',
+        'apps/server/__tests__/**/*.test.ts'
       ],
       setupFiles: ['packages/crypto/vitest.setup.ts']
     }
@@ -43,14 +45,14 @@ const projects = [
   {
     name: 'integration',
     test: {
-      include: ['services/**/src/tests/integration/**/*.test.ts', 'services/**/src/tests/e2e/**/*.test.ts'],
+      include: ['services/**/src/tests/integration/**/*.test.ts', 'services/**/src/tests/e2e/**/*.test.ts', 'services/**/tests/integration/**/*.test.ts', 'services/**/tests/e2e/**/*.test.ts'],
       setupFiles: ['packages/crypto/vitest.setup.ts']
     }
   },
   {
     name: 'security',
     test: {
-      include: ['services/**/src/tests/security/**/*.test.ts'],
+      include: ['services/**/src/tests/security/**/*.test.ts', 'services/**/tests/security/**/*.test.ts'],
       setupFiles: ['packages/crypto/vitest.setup.ts']
     }
   }
@@ -63,13 +65,14 @@ export default defineConfig({
     setupFiles: ['vitest.global.setup.ts'],
     testTimeout: 15000,
     coverage: coverageThresholds,
-    projects
+    projects,
+    include: ['services/**/src/tests/unit/**/*.test.ts', 'services/**/tests/unit/**/*.test.ts', 'packages/**/__tests__/**/*.test.ts', 'apps/server/__tests__/**/*.test.ts']
   },
   resolve: {
     alias: {
-      '@arqivo/config': path.resolve(rootDir, 'packages/config/src/index.ts'),
-      '@arqivo/transport': path.resolve(rootDir, 'packages/transport/src/index.ts'),
-      '@arqivo/crypto': path.resolve(rootDir, 'packages/crypto/src/index.ts')
+      '@sanctum/config': path.resolve(rootDir, 'packages/config/src/index.ts'),
+      '@sanctum/transport': path.resolve(rootDir, 'packages/transport/src/index.ts'),
+      '@sanctum/crypto': path.resolve(rootDir, 'packages/crypto/src/index.ts')
     }
   }
 });

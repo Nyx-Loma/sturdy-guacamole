@@ -23,6 +23,7 @@ export interface MetricsEvent {
     | 'ws_heartbeat_terminate'
     | 'ws_overloaded'
     | 'ws_frame_sent'
+    | 'ws_send_error'
     | 'ws_replay_start'
     | 'ws_replay_batch_sent'
     | 'ws_replay_backpressure_hits'
@@ -42,6 +43,8 @@ export interface MetricsEvent {
   batches?: number;
   resumeTokenRedacted?: string;
   pingLatencyMs?: number;
+  errorName?: string;
+  errorMessage?: string;
 }
 
 export interface AuthenticateParams {
@@ -113,3 +116,4 @@ export interface ResumeStore {
   persist: (state: PersistResumeStateParams) => Promise<void>;
   drop: (token: string) => Promise<void>;
 }
+

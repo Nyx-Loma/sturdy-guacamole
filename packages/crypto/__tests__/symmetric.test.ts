@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
-import { encrypt, decrypt, randomNonce } from '../src/symmetric';
+import { encrypt, decrypt, randomNonce, deriveSymmetricKey } from '../src/symmetric';
 import { ensureSodium } from '../src/sodium/init';
 import { brandSymmetricKey } from '../src/types';
 
@@ -21,6 +21,13 @@ describe('symmetric encryption', () => {
     const decrypted = await decrypt(key, ciphertext, nonce, { additionalData: ad });
 
     expect(new TextDecoder().decode(decrypted)).toBe('secret message');
+  });
+
+  it('rejects when nonce length is invalid', async () => {
+    const keyBytes = sodium.crypto_aead_xchacha20poly1305_ietf_keygen();
+    const key = brandSymmetricKey(new Uint8Array(keyBytes));
+    const plaintext = new TextEncoder().encode('payload');
+    await expect(encrypt(key, plaintext, new Uint8Array([1, 2, 3]))).rejects.toThrow('invalid public_nonce length');
   });
 
   it('fails to decrypt with wrong additional data', async () => {
@@ -61,6 +68,21 @@ describe('symmetric encryption', () => {
     await expect(async () => {
       await decrypt(key, ciphertext, nonce);
     }).rejects.toThrow();
+  });
+
+  it('derives symmetric key using info context and master key', async () => {
+    const masterKey = brandSymmetricKey(new Uint8Array(sodium.crypto_kdf_keygen()));
+    const ikm = new Uint8Array([1, 2, 3, 4]);
+    const info = new TextEncoder().encode('context');
+    const derived = await deriveSymmetricKey(ikm, info, 2, masterKey);
+    expect(derived).toBeInstanceOf(Uint8Array);
+    expect(derived).toHaveLength(32);
+  });
+
+  it('derives symmetric key without master key fallback', async () => {
+    const ikm = new Uint8Array([5, 6, 7, 8]);
+    const derived = await deriveSymmetricKey(ikm, new Uint8Array(4));
+    expect(derived).toHaveLength(32);
   });
 });
 
