@@ -33,6 +33,13 @@ export const createServer = (): Server => {
     reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   });
 
+  // rate limiting as early as possible
+  registerRateLimiter(app, {
+    max: config.RATE_LIMIT_MAX,
+    intervalMs: config.RATE_LIMIT_INTERVAL_MS,
+    allowList: ['127.0.0.1']
+  });
+
   // request id
   app.addHook('onRequest', async (request) => {
     if (!request.id) {
@@ -58,12 +65,6 @@ export const createServer = (): Server => {
   // Ensure wiring even if server is only readied (common in tests)
   app.addHook('onReady', async () => {
     await wireIfNeeded();
-  });
-
-  registerRateLimiter(app, {
-    max: config.RATE_LIMIT_MAX,
-    intervalMs: config.RATE_LIMIT_INTERVAL_MS,
-    allowList: ['127.0.0.1']
   });
 
   registerMetrics(app);
