@@ -140,10 +140,7 @@ describe('recoveryService', () => {
   it('rotate resets record and creates new backup', async () => {
     const service = createRecoveryService(repo, { policy: defaultPolicy, backup: backupConfig, metrics }, deps);
     backupServiceStub.createBackup.mockResolvedValue('blob-id');
-    backupServiceStub.deactivateBlobs.mockResolvedValue(undefined);
-    backupServiceStub.listBlobs.mockResolvedValue([
-      { id: 'active', isActive: true, updatedAt: new Date(), blobVersion: 1, profile: 'desktop', sizeBytes: 64 }
-    ]);
+    repo.deactivateBlobs.mockResolvedValue(undefined);
 
     await service.rotate('acc', 'code', {
       accountId: 'acc',
@@ -157,8 +154,9 @@ describe('recoveryService', () => {
       cipherLength: 1,
       padLength: 0
     });
+
     expect(repo.delete).toHaveBeenCalledWith('acc');
-    expect(backupServiceStub.deactivateBlobs).toHaveBeenCalledWith('acc');
+    expect(repo.deactivateBlobs).toHaveBeenCalledWith('acc');
     expect(backupServiceStub.createBackup).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'acc' }));
   });
 });

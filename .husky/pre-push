@@ -1,6 +1,6 @@
-#!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
+#!/usr/bin/env sh
+set -e
 
-pnpm exec tsc -b --noEmit
 pnpm run lint
-pnpm test
+pnpm -r --filter "./packages/*" --filter "./services/*" --filter "./apps/*" exec tsc -p tsconfig.json --noEmit
+pnpm exec vitest --run --reporter=dot
