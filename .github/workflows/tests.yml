@@ -237,7 +237,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Run coverage suite
-        run: pnpm coverage
+        run: pnpm test
 
       - name: Enforce coverage thresholds
         run: pnpm run check:coverage
