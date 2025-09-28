@@ -187,7 +187,7 @@ jobs:
             --coverage=false \
             --reporter=default --reporter=junit \
             --outputFile=junit-integration.xml \
-            --retry=2 --retryDelay=200 \
+            --retry=2 --retry-delay=200 \
             --include services/auth/src/tests/integration/**/*.test.ts
 
       - name: Upload integration reports
