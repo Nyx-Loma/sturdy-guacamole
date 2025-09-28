@@ -5,3 +5,14 @@
 - To generate an SBOM: `pnpm dlx cyclonedx-npm --output-format json --output-file sbom.json`.
 - Nightly status: ![Nightly Heavy Tests](https://github.com/OWNER/REPO/actions/workflows/nightly.yml/badge.svg)
 
+## 🚦 Deployment Discipline
+
+Sanctum follows the [🛡️ Last Layer Runbook](./RUNBOOK.md).
+
+**Golden rules:**
+- `main` = prod-only, immutable tags.
+- `staging` = candidate branch, all merges target here.
+- Feature branches → PR → staging → CI gates → tag → main.
+
+No exceptions. Read the full [Runbook](./RUNBOOK.md) before shipping.
+
