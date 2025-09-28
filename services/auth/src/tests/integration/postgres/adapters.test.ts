@@ -10,6 +10,7 @@ import {
 import { randomUUID } from 'node:crypto';
 
 const POSTGRES_URL = process.env.POSTGRES_URL;
+const SHOULD_RUN = Boolean(POSTGRES_URL) && process.env.CI !== 'true';
 
 const makeConfig = () => ({
   STORAGE_DRIVER: 'postgres',
@@ -165,7 +166,7 @@ const registerSuite = () => {
 
 };
 
-if (!POSTGRES_URL) {
+if (!SHOULD_RUN) {
   describe.skip('postgres adapters', () => {
     it('skips because POSTGRES_URL is not configured', () => {
       expect(true).toBe(true);
