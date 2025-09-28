@@ -63,6 +63,9 @@ export const createServer = (): Server => {
   };
 
   // Ensure wiring even if server is only readied (common in tests)
+  // CodeQL: onReady is a lifecycle hook (runs once at startup), not an HTTP route.
+  // codeql[js/insufficient-rate-limiting]
+  // lgtm[js/insufficient-rate-limiting]
   app.addHook('onReady', async () => {
     await wireIfNeeded();
   });
