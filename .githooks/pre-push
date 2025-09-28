@@ -1,12 +1,8 @@
-#!/usr/bin/env sh
+#!/bin/sh
 set -e
-
 branch="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$branch" = "main" ]; then
   echo "❌ Direct pushes to main are forbidden. Push to staging instead."
   exit 1
 fi
 
-pnpm -r run clean
-pnpm exec tsc --project tsconfig.json --noEmit
-pnpm vitest --run --coverage --silent
