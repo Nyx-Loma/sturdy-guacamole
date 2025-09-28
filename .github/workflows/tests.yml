@@ -134,12 +134,12 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: sanctum
-          POSTGRES_PASSWORD: sanctum
-          POSTGRES_DB: sanctum
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
         ports: ['55432:5432']
         options: >-
-          --health-cmd="pg_isready -U sanctum -d sanctum"
+          --health-cmd="pg_isready -U postgres -d postgres"
           --health-interval=5s --health-timeout=5s --health-retries=20
       redis:
         image: redis:7-alpine
@@ -151,8 +151,8 @@ jobs:
       NODE_ENV: test
       TZ: UTC
       STORAGE_DRIVER: postgres
-      POSTGRES_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
-      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
+      POSTGRES_URL: postgres://postgres:postgres@localhost:55432/postgres
+      DATABASE_URL: postgres://postgres:postgres@localhost:55432/postgres
       REDIS_URL: redis://localhost:6379
       CAPTCHA_PROVIDER: none
       KMS_MODE: inmemory

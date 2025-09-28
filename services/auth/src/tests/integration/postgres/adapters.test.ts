@@ -9,7 +9,7 @@ import {
 } from '../../../adapters/postgres';
 import { randomUUID } from 'node:crypto';
 
-const POSTGRES_URL = process.env.POSTGRES_URL ?? 'postgres://postgres:postgres@localhost:5432/postgres';
+const POSTGRES_URL = process.env.POSTGRES_URL ?? 'postgres://postgres:postgres@localhost:55432/postgres';
 const SKIP = !POSTGRES_URL;
 
 if (SKIP) {
