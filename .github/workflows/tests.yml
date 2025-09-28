@@ -132,13 +132,11 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
-        ports: ['55432:5432']
         options: >-
           --health-cmd="pg_isready -U postgres -d postgres"
           --health-interval=5s --health-timeout=5s --health-retries=20
       redis:
         image: redis:7-alpine
-        ports: ['6379:6379']
         options: >-
           --health-cmd="redis-cli ping || exit 1"
           --health-interval=5s --health-timeout=5s --health-retries=20
@@ -163,17 +161,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Wait for Postgres
+        shell: bash
         run: |
-          for i in {1..30}; do
-            pg_isready -h postgres -p 5432 -U postgres && break;
-            sleep 2;
+          for i in {1..60}; do
+            (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1 && break
+            sleep 2
           done
 
       - name: Wait for Redis
+        shell: bash
         run: |
-          for i in {1..30}; do
-            docker exec ${{ job.services.redis.id }} redis-cli ping && break;
-            sleep 2;
+          for i in {1..60}; do
+            (echo > /dev/tcp/redis/6379) >/dev/null 2>&1 && break
+            sleep 2
           done
 
       - name: Run migrations
