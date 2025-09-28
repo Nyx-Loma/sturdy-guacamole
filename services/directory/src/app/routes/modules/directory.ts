@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { loadConfig } from '../../../config/index.js';
+import { createDirectoryService } from '../../../services/directoryService.js';
 
 const accountIdParamSchema = z.object({
   id: z

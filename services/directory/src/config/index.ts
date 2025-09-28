@@ -7,6 +7,13 @@ export const ConfigSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  STORAGE_DRIVER: z.enum(['memory', 'postgres']).default('memory'),
+  POSTGRES_URL: z.string().url().optional(),
+  DIRECTORY_API_KEY: z.string().optional(),
+  DIRECTORY_REQUIRE_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true'),
   HASHED_EMAIL_LOOKUP_ENABLED: z
     .string()
     .optional()
