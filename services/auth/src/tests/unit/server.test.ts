@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const registerMock = vi.fn();
 const listenMock = vi.fn();
 const closeMock = vi.fn();
-const fastifyFactoryMock = vi.fn(() => ({
+const fastifyInstance = {
   register: registerMock,
   listen: listenMock,
   close: closeMock
-}));
+};
+
+const fastifyFactoryMock = vi.fn(() => fastifyInstance);
 
 vi.mock('fastify', () => ({ default: fastifyFactoryMock }));
 
@@ -20,10 +22,11 @@ describe('createServer', () => {
     HTTP_PORT: 8080
   } as any;
 
-  const logger = {
-    error: vi.fn(),
-    info: vi.fn()
-  } as any;
+const logger = {
+  error: vi.fn(),
+  info: vi.fn(),
+  level: 'info'
+} as any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -39,8 +42,8 @@ describe('createServer', () => {
 
     const server = await createServer({ config, logger, container });
 
-    expect(fastifyFactoryMock).toHaveBeenCalledWith({ logger: { instance: logger }, disableRequestLogging: false });
-    expect(registerRoutesMock).toHaveBeenCalledWith(expect.objectContaining({ listen: listenMock }), { config, container });
+    expect(fastifyFactoryMock).toHaveBeenCalledWith({ logger: { level: 'info' }, disableRequestLogging: false });
+    expect(registerRoutesMock).toHaveBeenCalledWith(fastifyInstance, { config, container });
 
     await server.listen();
     expect(listenMock).toHaveBeenCalledWith({ host: config.HTTP_HOST, port: config.HTTP_PORT });

@@ -1,6 +1,9 @@
 import { afterEach, beforeAll, beforeEach, vi } from 'vitest';
 import sodium from 'libsodium-wrappers';
 
+process.env.STORAGE_DRIVER ??= 'memory';
+process.env.RATE_LIMIT_DISABLED ??= 'true';
+
 const BASE_DATE = new Date('2025-01-01T00:00:00.000Z');
 const RNG_MODULUS = 2147483647;
 const RNG_MULTIPLIER = 16807;

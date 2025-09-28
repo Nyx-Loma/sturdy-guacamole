@@ -9,13 +9,15 @@ vi.mock('../src/sodium/init', () => ({
   })
 }));
 
-vi.mock('../src/sessions/envelope', () => ({
-  Sessions: {
+vi.mock('../src/sessions/envelope', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
     seal: vi.fn().mockResolvedValue({ type: 'sealed' }),
     open: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
-    randomNonce: vi.fn().mockResolvedValue(new Uint8Array([9, 9, 9]))
-  }
-}));
+    randomEnvelopeNonce: vi.fn().mockResolvedValue(new Uint8Array([9, 9, 9]))
+  };
+});
 
 describe('crypto random facade', () => {
   it('delegates to sodium randombytes_buf', async () => {

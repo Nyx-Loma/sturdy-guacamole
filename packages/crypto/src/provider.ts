@@ -3,8 +3,8 @@ import { deriveSymmetricKey as deriveSymmetricKeyPrimitive, encrypt as encryptPr
 import { generateSigningKeyPair as generateSigningKeyPairPrimitive, sign as signPrimitive, verify as verifyPrimitive } from './primitives/asymmetric';
 import {
   brandCipherText,
+  brandNonce,
   CipherText,
-  CryptoProvider,
   DecryptResult,
   EncryptOptions,
   KeyPair,
@@ -26,50 +26,51 @@ export interface ProviderOverrides {
   nonce?: () => Promise<Nonce>;
 }
 
-export const createCryptoProvider = (overrides: ProviderOverrides = {}): CryptoProvider => ({
-  async randomBytes(length: number) {
+export const createCryptoProvider = (overrides: ProviderOverrides = {}) => ({
+  async randomBytes(length: number): Promise<Uint8Array> {
     return overrides.randomBytes ? overrides.randomBytes(length) : randomBytesPrimitive(length);
   },
-  async generateKeyPair() {
+  async nonce(): Promise<Nonce> {
+    if (overrides.nonce) {
+      return overrides.nonce();
+    }
+    const bytes = await randomBytesPrimitive(24);
+    return brandNonce(bytes);
+  },
+  async generateKeyPair(): Promise<KeyPair> {
     return overrides.generateKeyPair ? overrides.generateKeyPair() : generateSigningKeyPairPrimitive();
   },
-  async deriveSymmetricKey(ikm, info, salt) {
+  async deriveSymmetricKey(ikm: Uint8Array, info: Uint8Array, salt?: Uint8Array): Promise<SymmetricKey> {
     if (overrides.deriveSymmetricKey) {
       return overrides.deriveSymmetricKey(ikm, info, salt);
     }
-    return deriveSymmetricKeyPrimitive(ikm, info, salt);
+    return salt ? deriveSymmetricKeyPrimitive(ikm, info, salt) : deriveSymmetricKeyPrimitive(ikm, info);
   },
-  async encrypt(key, plaintext, nonce, options) {
+  async encrypt(key: SymmetricKey, plaintext: Uint8Array, nonce: Nonce, options?: EncryptOptions): Promise<CipherText> {
     if (overrides.encrypt) {
       return overrides.encrypt(key, plaintext, nonce, options);
     }
     const ciphertext = await encryptPrimitive(key, plaintext, nonce, options);
     return brandCipherText(ciphertext);
   },
-  async decrypt(key, ciphertext, nonce, options) {
+  async decrypt(key: SymmetricKey, ciphertext: CipherText, nonce: Nonce, options?: EncryptOptions): Promise<DecryptResult> {
     if (overrides.decrypt) {
       return overrides.decrypt(key, ciphertext, nonce, options);
     }
     const plaintext = await decryptPrimitive(key, ciphertext, nonce, options);
     return { plaintext } satisfies DecryptResult;
   },
-  async sign(key, message) {
+  async sign(key: SecretKey, message: Uint8Array): Promise<Signature> {
     if (overrides.sign) {
       return overrides.sign(key, message);
     }
     return signPrimitive(message, key);
   },
-  async verify(key, message, signature) {
+  async verify(key: PublicKey, message: Uint8Array, signature: Signature): Promise<boolean> {
     if (overrides.verify) {
       return overrides.verify(key, message, signature);
     }
     return verifyPrimitive(message, signature, key);
   },
-  async nonce() {
-    if (overrides.nonce) {
-      return overrides.nonce();
-    }
-    return randomBytesPrimitive(24);
-  }
 });
 

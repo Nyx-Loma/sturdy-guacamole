@@ -1,0 +1,324 @@
+name: Nightly Heavy Tests
+
+on:
+  schedule:
+    - cron: "10 2 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9"
+  STORAGE_DRIVER: memory
+  CI: "true"
+  FORCE_COLOR: "2"
+
+jobs:
+  setup:
+    name: Restore deps/cache
+    runs-on: ubuntu-latest
+    outputs:
+      pnpm_store_path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
+          key: pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache tooling
+        uses: actions/cache@v4
+        with:
+          path: |
+            .eslintcache
+            **/node_modules/.vite
+            ~/.vite
+          key: toolcache-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            toolcache-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+  unit:
+    name: Unit (all pkgs)
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Restore pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ needs.setup.outputs.pnpm_store_path }}
+          key: pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (no emit)
+        run: pnpm exec tsc -b --noEmit
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Unit tests (vitest)
+        run: pnpm test --run --reporter=junit --outputFile=junit-unit.xml
+
+      - name: Test Report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Unit Tests
+          path: junit-unit.xml
+          reporter: jest-junit
+
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-unit
+          path: junit-unit*.xml
+          if-no-files-found: ignore
+
+  integration:
+    name: Integration (PG + Redis)
+    needs: setup
+    runs-on: ubuntu-latest
+    env:
+      STORAGE_DRIVER: postgres
+      POSTGRES_URL: postgresql://postgres:postgres@localhost:55432/postgres
+      REDIS_URL: redis://localhost:56379
+      TURNSTILE_SECRET: test-secret
+      KMS_MOCK: "true"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=3s
+          --health-timeout=3s
+          --health-retries=20
+      redis:
+        image: redis:7
+        ports: ["56379:6379"]
+        options: >-
+          --health-cmd="redis-cli ping || exit 1"
+          --health-interval=3s
+          --health-timeout=3s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Restore pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ needs.setup.outputs.pnpm_store_path }}
+          key: pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..60}; do
+            pg_isready -d "${POSTGRES_URL}" && exit 0
+            sleep 1
+          done
+          echo "Postgres not ready"; exit 1
+
+      - name: Run DB migrations (auth)
+        run: pnpm --filter services/auth run migrate
+
+      - name: Integration tests (auth+transport)
+        run: |
+          pnpm exec vitest --run \
+            --reporter=junit --outputFile=junit-integration.xml \
+            --include "services/auth/src/tests/integration/**" \
+            --include "packages/transport/**/__tests__/**"
+
+      - name: Test Report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Integration Tests
+          path: junit-integration.xml
+          reporter: jest-junit
+
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-integration
+          path: junit-integration*.xml
+          if-no-files-found: ignore
+
+  chaos_and_load:
+    name: Chaos / Load / Long Smoke
+    needs: integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    env:
+      STORAGE_DRIVER: postgres
+      POSTGRES_URL: postgresql://postgres:postgres@localhost:55432/postgres
+      REDIS_URL: redis://localhost:56379
+      TURNSTILE_SECRET: test-secret
+      KMS_MOCK: "true"
+      VITEST_MAX_THREADS: 2
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=3s
+          --health-timeout=3s
+          --health-retries=20
+      redis:
+        image: redis:7
+        ports: ["56379:6379"]
+        options: >-
+          --health-cmd="redis-cli ping || exit 1"
+          --health-interval=3s
+          --health-timeout=3s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Restore pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ needs.setup.outputs.pnpm_store_path }}
+          key: pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Run migrations
+        run: pnpm --filter services/auth run migrate
+
+      - name: Long-running smoke (auth server + bursts)
+        run: |
+          pnpm exec vitest --run --pool=threads --poolOptions.threads.maxWorkers=50% \
+            --include "services/auth/tests/load/loginBurst.ts" \
+            --include "services/auth/tests/load/mixTraffic.ts" \
+            --include "services/auth/tests/chaos/postgresOutage.ts" \
+            --include "services/auth/tests/chaos/redisOutage.ts" \
+            --outputFile=junit-chaos.xml --reporter=junit
+
+      - name: Test Report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Chaos & Load Tests
+          path: junit-chaos.xml
+          reporter: jest-junit
+
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-chaos
+          path: junit-chaos*.xml
+          if-no-files-found: ignore
+
+  coverage:
+    name: Coverage & Thresholds
+    needs: [unit, integration]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Restore pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ needs.setup.outputs.pnpm_store_path }}
+          key: pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Run coverage (all)
+        run: pnpm coverage
+
+      - name: Enforce coverage thresholds
+        run: pnpm run check:coverage
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: |
+            coverage/**/*
+            **/coverage/**/*
+          if-no-files-found: ignore

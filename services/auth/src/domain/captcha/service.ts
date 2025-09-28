@@ -1,16 +1,16 @@
 import type { Config } from '../../config';
-import type { CaptchaProvider, CaptchaVerificationInput, CaptchaVerifier } from './types';
+import type { CaptchaProvider, CaptchaVerificationInput, CaptchaVerifier, CaptchaVerificationResult } from './types';
 import { noopVerifier } from './types';
 import { createTurnstileVerifier } from './turnstile';
 import { AuthMetrics } from '../metrics';
 
 let sharedMetrics: AuthMetrics | undefined;
 
-export interface CaptchaService {
+export type CaptchaService = {
   provider: CaptchaProvider;
   verify(input: CaptchaVerificationInput): Promise<boolean>;
   metrics: AuthMetrics;
-}
+};
 
 export interface CaptchaServiceOptions {
   verifier?: CaptchaVerifier;
@@ -35,8 +35,8 @@ export const createCaptchaService = (config: Config, options: CaptchaServiceOpti
       return true;
     }
 
-    const result = await verifier.verify(input);
-    metrics.recordCaptcha(result.verdict, result.provider);
+    const result: CaptchaVerificationResult = await verifier.verify(input);
+    metrics.recordCaptcha(result.verdict === 'allow' ? 'allow' : 'deny', result.provider);
     return result.verdict === 'allow';
   };
 

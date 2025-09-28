@@ -8,7 +8,9 @@ interface RegisterDeviceInput {
 }
 
 export const registerDevice = async ({ repos, config }: Container, input: RegisterDeviceInput) => {
-  const limit = typeof config.DEVICE_MAX_PER_ACCOUNT === 'number' ? config.DEVICE_MAX_PER_ACCOUNT : config.limits?.deviceMaxPerAccount;
+  const limit = typeof config.DEVICE_MAX_PER_ACCOUNT_LIMIT_OVERRIDE === 'number'
+    ? config.DEVICE_MAX_PER_ACCOUNT_LIMIT_OVERRIDE
+    : config.DEVICE_MAX_PER_ACCOUNT;
   if (typeof limit !== 'number') {
     throw new Error('device registration requires DEVICE_MAX_PER_ACCOUNT limit');
   }

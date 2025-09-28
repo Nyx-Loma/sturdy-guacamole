@@ -17,7 +17,7 @@ export class WebSocketHub {
     return this.state.metrics.getRegistry();
   }
 
-  async register(socket: WebSocket, clientId: string, headers: Record<string, unknown>): Promise<RegisterResult | null> {
+  async register(socket: WebSocket, clientId: string, headers: Record<string, string | string[] | undefined>): Promise<RegisterResult | null> {
     return registerClient(socket, clientId, headers, this.state);
   }
 

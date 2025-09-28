@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import type { Logger } from 'pino';
 import { registerRoutes } from './routes';
 import { loadConfig } from '../config';
@@ -9,11 +9,17 @@ import { createContainer } from '../container';
 export interface ServerOptions {
   config: import('../config').Config;
   logger: Logger;
-  container: unknown;
+  container: import('../container').Container;
 }
 
-export const createServer = async ({ config, logger, container }: ServerOptions) => {
-  const app = Fastify({ logger: { instance: logger }, disableRequestLogging: false });
+export interface AuthServer {
+  listen(): Promise<FastifyInstance>;
+  close(): Promise<void>;
+  app: FastifyInstance;
+}
+
+export const createServer = async ({ config, logger, container }: ServerOptions): Promise<AuthServer> => {
+  const app = Fastify({ logger: { level: logger.level ?? 'info' }, disableRequestLogging: false });
   await registerRoutes(app, { config, container });
   return {
     listen: async () => {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const schema = z.object({
+export const schema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
   KMS_KEY_ID: z.string().min(1),
@@ -53,7 +53,7 @@ const schema = z.object({
     .transform((value) => value === 'true')
 });
 
-type Config = z.infer<typeof schema>;
+export type Config = z.infer<typeof schema>;
 
 let cachedConfig: Config | null = null;
 

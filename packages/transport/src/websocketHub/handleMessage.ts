@@ -8,7 +8,10 @@ import { logWithContext, sanitizeError } from '../logging';
 
 export async function handleMessage(clientId: string, raw: RawData, state: HubState): Promise<ResumeResult | void> {
   const connection = state.connections.get(clientId);
-  if (!connection) return;
+  if (!connection) {
+    logWithContext(state.options.logger, 'warn', 'message_no_connection', { clientId });
+    return;
+  }
 
   if (state.messageLimiter) {
     try {
@@ -25,7 +28,13 @@ export async function handleMessage(clientId: string, raw: RawData, state: HubSt
     }
   }
 
-  if (raw.length > 64 * 1024) {
+  const rawBuffer = Array.isArray(raw)
+    ? Buffer.concat(raw.map((chunk) => (Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))))
+    : Buffer.isBuffer(raw)
+      ? raw
+      : Buffer.from(raw as ArrayBuffer);
+
+  if (rawBuffer.byteLength > 64 * 1024) {
     state.metrics.record({ type: 'ws_invalid_size', clientId, accountId: connection.accountId, deviceId: connection.deviceId });
     connection.close(1009, 'message_too_large');
     return;
@@ -33,7 +42,7 @@ export async function handleMessage(clientId: string, raw: RawData, state: HubSt
 
   let envelope: MessageEnvelope;
   try {
-    envelope = MessageEnvelopeSchema.parse(JSON.parse(raw.toString()));
+    envelope = MessageEnvelopeSchema.parse(JSON.parse(rawBuffer.toString('utf8')));
   } catch (error) {
     logWithContext(state.options.logger, 'warn', 'invalid_frame', {
       clientId,

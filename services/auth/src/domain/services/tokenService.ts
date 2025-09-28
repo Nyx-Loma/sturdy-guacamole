@@ -3,6 +3,14 @@ import { randomUUID } from 'node:crypto';
 import type { Config } from '../../config';
 import { ExpiredTokenError, InvalidSignatureError } from '../errors';
 import type { KeyResolver } from '../keys';
+import type { JWTPayload } from 'jose';
+
+export interface AccessTokenPayload extends JWTPayload {
+  sub: string;
+  did: string;
+  ver: number;
+  jti: string;
+}
 
 const JTI_TTL_MS = 5 * 60 * 1000;
 
@@ -16,13 +24,6 @@ export interface IssueAccessParams {
   accountId: string;
   deviceId: string;
   kid?: string;
-}
-
-export interface AccessTokenPayload {
-  sub: string;
-  did: string;
-  ver: number;
-  jti: string;
 }
 
 export const createTokenService = ({ config, keyResolver, leewaySeconds = config.JWT_ROTATION_LEEWAY_SECONDS }: TokenServiceOptions) => {
@@ -69,7 +70,7 @@ export const createTokenService = ({ config, keyResolver, leewaySeconds = config
         }
 
         pruneJtiCache(jtiCache, now);
-        if (!trackJti(jtiCache, payload.jti, now)) {
+        if (!trackJti(jtiCache, payload.jti ?? '', now)) {
           throw new InvalidSignatureError('replayed token identifier');
         }
         return payload as AccessTokenPayload & { exp: number; iat: number };

@@ -159,6 +159,6 @@ describe('recoveryService', () => {
     });
     expect(repo.delete).toHaveBeenCalledWith('acc');
     expect(backupServiceStub.deactivateBlobs).toHaveBeenCalledWith('acc');
-    expect(backupServiceStub.createBackup).toHaveBeenCalled();
+    expect(backupServiceStub.createBackup).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'acc' }));
   });
 });

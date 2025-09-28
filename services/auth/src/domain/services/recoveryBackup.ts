@@ -4,7 +4,7 @@ import type { RecoveryRepository } from '../../repositories/recoveryRepo';
 import { AuthMetrics } from '../metrics';
 import { RecoveryPolicyError, RecoveryValidationError } from '../errors';
 import { deriveMaterial } from '@sanctum/crypto/backup/derive';
-import { createCryptoProvider, brandSymmetricKey } from '@sanctum/crypto';
+import { createCryptoProvider, brandCipherText, brandNonce, brandSymmetricKey } from '@sanctum/crypto';
 
 export interface RecoveryBackupConfig {
   dummyCipherBytes: number;
@@ -95,6 +95,9 @@ export interface RestoreResult {
 const bufferFrom = (value: Uint8Array | Buffer) =>
   value instanceof Uint8Array ? Buffer.from(value) : value;
 
+const toUint8 = (value: Uint8Array | Buffer) =>
+  value instanceof Uint8Array ? value : new Uint8Array(value);
+
 const computeSize = (payload: PreparePayload) =>
   payload.cipherLength + payload.padLength + payload.nonce.length + payload.associatedData.length + payload.salt.length;
 
@@ -166,13 +169,17 @@ export const createRecoveryBackupService = (
       ? await deriveMaterial(input.mrc, { salt: input.salt })
       : undefined;
     const kek = derived ? brandSymmetricKey(derived.kek) : undefined;
-    const nonceBytes = derived?.keyNonce ?? input.plaintextNonce ?? (await provider.randomBytes(24));
+    const nonceBytes = derived?.keyNonce
+      ? brandNonce(toUint8(derived.keyNonce))
+      : input.plaintextNonce
+        ? brandNonce(toUint8(input.plaintextNonce))
+        : brandNonce(await provider.randomBytes(24));
     const additionalData = input.associatedDataOverride ?? input.associatedData;
 
-    let ciphertext = input.ciphertext;
+    let ciphertext = brandCipherText(toUint8(input.ciphertext));
     let kekVerifier: Uint8Array | null = null;
     if (kek) {
-      ciphertext = await provider.encrypt(kek, input.ciphertext, nonceBytes, { additionalData });
+      ciphertext = await provider.encrypt(kek, ciphertext, nonceBytes, { additionalData });
       if (config.kmsPepper) {
         const hmac = createHmac('sha256', config.kmsPepper);
         hmac.update(Buffer.from(ciphertext));
@@ -188,10 +195,10 @@ export const createRecoveryBackupService = (
       id: input.previousBlobId ?? randomUUID(),
       accountId: input.accountId,
       blobVersion: input.blobVersion,
-      ciphertext: bufferFrom(ciphertext),
-      nonce: bufferFrom(nonceBytes),
-      associatedData: bufferFrom(additionalData),
-      salt: bufferFrom(input.salt),
+      ciphertext,
+      nonce: nonceBytes,
+      associatedData: additionalData,
+      salt: toUint8(input.salt),
       argonParams: {
         timeCost: input.argonParams.timeCost,
         memoryCost: input.argonParams.memoryCost,
@@ -281,7 +288,7 @@ export const createRecoveryBackupService = (
         createdAt: blob.createdAt,
         sizeBytes: size,
         isDummy: false,
-        verifier: blob.kekVerifier ? encodeBase64Url(blob.kekVerifier) : null
+        verifier: blob.kekVerifier ? encodeBase64Url(blob.kekVerifier) : undefined
       };
     } finally {
       await applyLatencyFloor(started, config.minLatencyMs);
@@ -300,7 +307,12 @@ export const createRecoveryBackupService = (
       }
       const derived = await deriveMaterial(mrc, { salt: record.salt });
       const kek = brandSymmetricKey(derived.kek);
-      const plaintext = await provider.decrypt(kek, record.ciphertext, record.nonce, { additionalData: record.associatedData });
+      const plaintext = await provider.decrypt(
+        kek,
+        brandCipherText(toUint8(record.ciphertext)),
+        brandNonce(toUint8(record.nonce)),
+        { additionalData: record.associatedData }
+      );
       const result = {
         accountId,
         blobVersion: record.blobVersion,
@@ -308,9 +320,9 @@ export const createRecoveryBackupService = (
         payload: plaintext,
         argonParams: record.argonParams
       };
-      metrics.recordBackup('restore', 'ok', plaintext.length);
+      metrics.recordBackup('restore', 'ok', plaintext.plaintext.length);
       metrics.observeBackupLatency('restore', Date.now() - started);
-      return result;
+      return { ...result, payload: plaintext.plaintext };
     } catch {
       metrics.recordBackup('restore', 'fail', 0);
       metrics.observeBackupLatency('restore', Date.now() - started);

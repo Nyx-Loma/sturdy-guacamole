@@ -40,10 +40,9 @@ export const createTurnstileVerifier = (
         return { provider: 'turnstile', verdict: 'deny' };
       }
 
-      const body = new URLSearchParams({
-        secret: config.TURNSTILE_SECRET,
-        response: token
-      });
+      const body = new URLSearchParams();
+      body.set('secret', config.TURNSTILE_SECRET ?? '');
+      body.set('response', token);
       if (remoteIp) {
         body.set('remoteip', remoteIp);
       }

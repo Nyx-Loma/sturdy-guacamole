@@ -4,7 +4,7 @@ import type { MetricsEvent } from '../types';
 import type { HubState } from './state';
 import { logWithContext, redactToken } from '../logging';
 
-export async function registerClient(socket: WebSocket, clientId: string, headers: Record<string, unknown>, state: HubState) {
+export async function registerClient(socket: WebSocket, clientId: string, headers: Record<string, string | string[] | undefined>, state: HubState) {
   const auth = await state.authenticate({ clientId, requestHeaders: headers });
   if (!auth) {
     socket.close(1008, 'unauthorized');
@@ -38,10 +38,7 @@ export async function registerClient(socket: WebSocket, clientId: string, header
     resumeTokenExpiresAt: expiresAt,
     maxQueueLength: state.options.maxQueueLength ?? 1024,
     send: state.options.send ?? ((ws, payload, callback) => {
-      const maybePromise = ws.send(payload, callback);
-      if (maybePromise && typeof (maybePromise as Promise<void>).then === 'function') {
-        return maybePromise;
-      }
+      ws.send(payload, callback);
     }),
     emitMetrics: (event: MetricsEvent) => state.metrics.record(event),
     logger: state.options.logger
@@ -49,7 +46,7 @@ export async function registerClient(socket: WebSocket, clientId: string, header
 
   state.connections.set(clientId, connection);
   socket.on('close', () => handleClose(connection, state));
-  socket.on('pong', () => handlePong(connection));
+  socket.on('pong', () => handlePong(connection, state));
   await state.persistSnapshot(connection);
 
   state.metrics.record({ type: 'ws_connected', clientId, accountId: connection.accountId, deviceId: connection.deviceId });
@@ -76,13 +73,13 @@ function handleClose(connection: Connection, state: HubState) {
   state.onClose?.(ctx);
 }
 
-function handlePong(connection: Connection) {
+function handlePong(connection: Connection, state: HubState) {
   const now = Date.now();
   connection.lastSeenAt = now;
   if (connection.lastPingSentAt) {
     const latency = now - connection.lastPingSentAt;
     connection.lastPingSentAt = undefined;
-    connection.emitMetrics?.({
+    state.metrics.record({
       type: 'ws_ping_latency',
       clientId: connection.id,
       accountId: connection.accountId,

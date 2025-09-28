@@ -15,7 +15,7 @@ export const registerRoutes = async (
   context: { config: Config; container: Container }
 ) => {
   registerErrorHandler(app);
-  await registerHealthRoute(app);
+  await registerHealthRoute(app, context);
   await accountsRoutes(app, context);
   await devicesRoutes(app, context);
   await pairingRoutes(app, context);

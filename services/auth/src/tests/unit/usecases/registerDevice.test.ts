@@ -9,7 +9,7 @@ const baseContainer = () => ({
       create: vi.fn(async (input) => ({ ...input, id: 'dev', createdAt: new Date() }))
     }
   },
-  config: { limits: { deviceMaxPerAccount: 1 } }
+  config: { DEVICE_MAX_PER_ACCOUNT: 1 }
 } as any);
 
 describe('registerDevice use case', () => {
@@ -28,7 +28,7 @@ describe('registerDevice use case', () => {
 
   it('respects display name and DEVICE_MAX_PER_ACCOUNT override', async () => {
     const container = baseContainer();
-    container.config = { DEVICE_MAX_PER_ACCOUNT: 2 };
+    container.config = { DEVICE_MAX_PER_ACCOUNT: 1, DEVICE_MAX_PER_ACCOUNT_LIMIT_OVERRIDE: 2 };
     const result = await registerDevice(container, { accountId: 'acc', publicKey: 'pk', displayName: 'phone' });
     expect(container.repos.devices.create).toHaveBeenCalledWith({ accountId: 'acc', publicKey: 'pk', displayName: 'phone', status: 'active' });
     expect(result.id).toBe('dev');

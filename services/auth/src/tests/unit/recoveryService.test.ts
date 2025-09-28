@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRecoveryService } from '../../domain/services/recoveryService';
 import { createInMemoryRecoveryRepository } from '../../adapters/inMemory/recoveryRepository';
-import { InvalidRecoveryCodeError, NotFoundError, RecoveryValidationError } from '../../domain/errors';
+import { InvalidRecoveryCodeError, NotFoundError } from '../../domain/errors';
 
 const repoFactory = () => createInMemoryRecoveryRepository();
 
@@ -26,20 +26,6 @@ const noopDeps = {
   revokeTokens: vi.fn().mockResolvedValue(undefined),
   revokeDevices: vi.fn().mockResolvedValue(undefined)
 };
-
-const makeBackup = () => ({
-  restore: vi.fn(async () => ({
-    accountId: 'acc',
-    blobVersion: 1,
-    profile: 'desktop' as const,
-    payload: new Uint8Array([1, 2, 3]),
-    argonParams: { timeCost: 1, memoryCost: 2, parallelism: 1 }
-  })),
-  listBlobs: vi.fn(async () => []),
-  deleteBlob: vi.fn(),
-  createBackup: vi.fn(),
-  deactivateBlobs: vi.fn(async () => {})
-});
 
 const makeService = () => createRecoveryService(repoFactory(), strongConfig, noopDeps);
 

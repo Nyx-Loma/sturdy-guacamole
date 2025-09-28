@@ -1,16 +1,16 @@
-import { RatchetState, SymmetricKey } from '../types';
+import { RatchetState, SymmetricKey, brandSymmetricKey } from '../types';
 import { compareUint8 } from '../utils/compare';
 import { zeroize } from '../utils/memory';
 import { createHmac } from 'node:crypto';
 
-export interface SerializedSessionState {
+export type SerializedSessionState = {
   v: 1;
   rootKey: string;
   sendCounter: number;
   receiveCounter: number;
   skipped: Array<{ header: string; key: string }>;
   mac: string;
-}
+};
 
 const toBase64 = (value: Uint8Array) => Buffer.from(value).toString('base64url');
 const fromBase64 = (value: string) => new Uint8Array(Buffer.from(value, 'base64url'));
@@ -25,7 +25,7 @@ const computeMac = (payload: Uint8Array, macKey: Uint8Array) => {
 };
 
 export const serializeState = (rootKey: SymmetricKey, send: RatchetState, receive: RatchetState, skipped: Map<string, SymmetricKey>): SerializedSessionState => {
-  const payload = {
+  const payload: Omit<SerializedSessionState, 'mac'> = {
     v: 1,
     rootKey: toBase64(rootKey),
     sendCounter: send.counter,
@@ -56,12 +56,12 @@ export const deserializeState = (input: SerializedSessionState) => {
   }
   const skipped = new Map<string, SymmetricKey>();
   for (const entry of input.skipped) {
-    skipped.set(entry.header, fromBase64(entry.key));
+    skipped.set(entry.header, brandSymmetricKey(fromBase64(entry.key)));
   }
   return {
-    rootKey: fromBase64(input.rootKey) as SymmetricKey,
-    send: { chainKey: new Uint8Array(), counter: input.sendCounter },
-    receive: { chainKey: new Uint8Array(), counter: input.receiveCounter },
+    rootKey: brandSymmetricKey(fromBase64(input.rootKey)),
+    send: { chainKey: brandSymmetricKey(new Uint8Array()), counter: input.sendCounter },
+    receive: { chainKey: brandSymmetricKey(new Uint8Array()), counter: input.receiveCounter },
     skipped
   };
 };

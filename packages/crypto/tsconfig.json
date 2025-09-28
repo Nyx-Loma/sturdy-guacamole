@@ -4,9 +4,11 @@
     "rootDir": "src",
     "outDir": "dist",
     "composite": true,
-    "declaration": true
+    "declaration": true,
+    "emitDeclarationOnly": true
   },
-  "include": ["src", "__tests__", "vitest.setup.ts"],
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/__tests__/**", "**/tests/**", "dist", "node_modules"],
   "references": []
 }
 

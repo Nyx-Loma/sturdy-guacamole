@@ -38,18 +38,22 @@ const toRecord = (row: RecoveryRow): RecoveryRecord => ({
   updatedAt: row.updated_at
 });
 
+const toUint8 = (value: Buffer | null | undefined) => (value ? new Uint8Array(value) : value ?? undefined);
+
 const toBlobRecord = (row: RecoveryBlobRow): RecoveryBlobRecord => ({
   id: row.id,
   accountId: row.account_id,
   blobVersion: row.blob_version,
-  ciphertext: row.ciphertext,
-  nonce: row.nonce,
-  associatedData: row.associated_data,
-  salt: row.salt,
+  ciphertext: new Uint8Array(row.ciphertext),
+  nonce: new Uint8Array(row.nonce),
+  associatedData: new Uint8Array(row.associated_data),
+  salt: new Uint8Array(row.salt),
   argonParams: row.argon_params,
+  profile: row.profile,
   cipherLength: row.cipher_length,
   padLength: row.pad_length,
-  verifier: row.verifier,
+  verifier: toUint8(row.verifier) ?? null,
+  kekVerifier: toUint8(row.kek_verifier) ?? null,
   isActive: row.is_active,
   createdAt: row.created_at,
   updatedAt: row.updated_at,

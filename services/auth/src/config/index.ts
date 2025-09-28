@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 
 const generateSecret = () => randomBytes(32).toString('base64url');
 
-const ConfigSchema = z.object({
+export const ConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   HTTP_PORT: z.coerce.number().int().positive().default(3000),
   HTTP_HOST: z.string().default('0.0.0.0'),
@@ -12,6 +12,7 @@ const ConfigSchema = z.object({
   REFRESH_TOKEN_TTL_MS: z.coerce.number().int().positive().default(7 * 24 * 60 * 60 * 1000),
   PAIRING_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(120),
   DEVICE_MAX_PER_ACCOUNT: z.coerce.number().int().positive().default(5),
+  DEVICE_MAX_PER_ACCOUNT_LIMIT_OVERRIDE: z.coerce.number().int().positive().optional(),
   STORAGE_DRIVER: z.enum(['memory', 'postgres']).default('memory'),
   POSTGRES_URL: z.string().optional(),
   POSTGRES_SCHEMA: z.string().default('auth'),

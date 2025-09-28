@@ -1,11 +1,11 @@
 import { createServer } from './server';
 import { loadConfig, type Config } from '../config';
 import { createLogger } from '../logging';
-import { createContainer } from '../container';
+import { createContainer, type Container } from '../container';
 
 interface BootstrapOverrides {
   config?: Config;
-  services?: Partial<ReturnType<typeof createContainer>['services']>;
+  services?: Partial<Container['services']>;
 }
 
 export const bootstrap = async (overrides: BootstrapOverrides = {}) => {

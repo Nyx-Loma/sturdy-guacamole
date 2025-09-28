@@ -2,10 +2,18 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true
   },
-  "include": ["src", "tests", "vitest.setup.ts"],
-  "references": []
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/__tests__/**", "**/tests/**", "dist", "node_modules"],
+  "references": [
+    { "path": "../../packages/config" },
+    { "path": "../../packages/crypto" },
+    { "path": "../../packages/transport" }
+  ]
 }
 
 

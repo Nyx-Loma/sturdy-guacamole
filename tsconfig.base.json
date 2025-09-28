@@ -10,16 +10,31 @@
     "resolveJsonModule": true,
     "types": ["node"],
     "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@sanctum/config": ["packages/config/src/index.ts"],
-      "@sanctum/transport": ["packages/transport/src/index.ts"],
-      "@sanctum/crypto": ["packages/crypto/src/index.ts"]
+      "@sanctum/config": ["packages/config/src/index"],
+      "@sanctum/transport": ["packages/transport/src/index"],
+      "@sanctum/crypto": ["packages/crypto/src/index"],
+      "@sanctum/config/*": ["packages/config/src/*"],
+      "@sanctum/transport/*": ["packages/transport/src/*"],
+      "@sanctum/crypto/*": ["packages/crypto/src/*"]
     }
   },
-  "include": ["packages/**/*.ts", "apps/**/*.ts", "services/**/*.ts", "vitest.config.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "packages/*/src/**/*.ts",
+    "apps/*/src/**/*.ts",
+    "services/*/src/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/__tests__/**",
+    "**/tests/**",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/vitest.setup.ts"
+  ]
 }
 

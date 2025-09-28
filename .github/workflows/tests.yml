@@ -32,7 +32,7 @@ jobs:
         with:
           version: 9
 
-      - run: pnpm install --frozen-lockfile
+          - run: pnpm install --frozen-lockfile
 
       - name: Cache tooling
         uses: actions/cache@v4
@@ -86,6 +86,28 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc -b --noEmit
 
+      typecheck:
+        name: Type Check
+        needs: setup
+        runs-on: ubuntu-latest
+        env:
+          STORAGE_DRIVER: memory
+          POSTGRES_URL: ''
+          REDIS_URL: ''
+          CAPTCHA_PROVIDER: mock
+          KMS_MODE: inmemory
+          RATE_LIMIT_DISABLED: 'true'
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-node@v4
+            with:
+              node-version: '20.x'
+          - uses: pnpm/action-setup@v4
+            with:
+              version: 9
+          - run: pnpm install --frozen-lockfile
+          - run: pnpm exec tsc -b --noEmit
+
   unit:
     name: Unit Tests
     needs: setup
@@ -94,11 +116,12 @@ jobs:
       matrix:
         shard: [1, 2]
     env:
-      TURNSTILE_MODE: mock
+      NODE_ENV: test
+      TZ: UTC
+      STORAGE_DRIVER: memory
+      RATE_LIMIT_DISABLED: 'true'
+      CAPTCHA_PROVIDER: none
       KMS_MODE: inmemory
-      STORAGE_DRIVER: postgres
-      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
-      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -143,11 +166,15 @@ jobs:
           --health-cmd="redis-cli ping || exit 1"
           --health-interval=5s --health-timeout=5s --health-retries=20
     env:
-      TURNSTILE_MODE: mock
-      KMS_MODE: inmemory
+      NODE_ENV: test
+      TZ: UTC
       STORAGE_DRIVER: postgres
+      POSTGRES_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
       DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
       REDIS_URL: redis://localhost:6379
+      CAPTCHA_PROVIDER: none
+      KMS_MODE: inmemory
+      RATE_LIMIT_DISABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -212,11 +239,12 @@ jobs:
     needs: [unit, integration]
     runs-on: ubuntu-latest
     env:
-      TURNSTILE_MODE: mock
+      NODE_ENV: test
+      TZ: UTC
+      STORAGE_DRIVER: memory
+      RATE_LIMIT_DISABLED: 'true'
+      CAPTCHA_PROVIDER: none
       KMS_MODE: inmemory
-      STORAGE_DRIVER: postgres
-      DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
-      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -244,11 +272,15 @@ jobs:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     env:
-      TURNSTILE_MODE: mock
-      KMS_MODE: inmemory
+      NODE_ENV: test
+      TZ: UTC
       STORAGE_DRIVER: postgres
+      POSTGRES_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
       DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
       REDIS_URL: redis://localhost:6379
+      RATE_LIMIT_DISABLED: 'true'
+      CAPTCHA_PROVIDER: none
+      KMS_MODE: inmemory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

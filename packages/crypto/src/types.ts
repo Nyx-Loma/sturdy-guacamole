@@ -1,5 +1,3 @@
-import type { BufferEncoding } from 'node:buffer';
-
 type Brand<T, B extends string> = T & { readonly __brand: B };
 
 export type PublicKey = Brand<Uint8Array, 'PublicKey'>;
@@ -56,6 +54,19 @@ export interface RatchetHeader {
   counter: number;
   previousCounter: number;
   additionalData?: Uint8Array;
+}
+
+export interface DoubleRatchetState {
+  rootKey: SymmetricKey;
+  send: RatchetState;
+  receive: RatchetState;
+  localKeyPair: {
+    publicKey: PublicKey;
+    secretKey: SecretKey;
+  };
+  remotePublicKey: PublicKey;
+  skipped: Map<string, SymmetricKey>;
+  maxSkipped?: number;
 }
 
 export const SYMMETRIC_KEY_BYTES = 32;

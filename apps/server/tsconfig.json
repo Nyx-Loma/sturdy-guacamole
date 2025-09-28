@@ -2,8 +2,16 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true
   },
-  "include": ["src", "__tests__"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/__tests__/**", "dist", "node_modules"],
+  "references": [
+    { "path": "../../packages/config" },
+    { "path": "../../packages/transport" }
+  ]
 }
 

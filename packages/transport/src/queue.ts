@@ -73,14 +73,14 @@ export const createRedisStreamQueue = ({
           'GROUP',
           consumerGroup,
           consumerName,
-          'BLOCK',
-          blockMs,
           'COUNT',
           readCount,
+          'BLOCK',
+          blockMs,
           'STREAMS',
           streamKey,
           '>'
-        );
+        ) as Array<[string, Array<[string, Record<string, string>]>]> | null;
 
         if (!streams) {
           continue;

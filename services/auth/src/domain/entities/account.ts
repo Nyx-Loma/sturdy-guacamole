@@ -1,6 +1,8 @@
+export type AccountStatus = 'active' | 'suspended' | 'deleted';
+
 export interface Account {
   id: string;
-  status: 'active' | 'suspended' | 'deleted';
+  status: AccountStatus;
   createdAt: Date;
 }
 

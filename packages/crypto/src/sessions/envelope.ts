@@ -1,16 +1,16 @@
 import { randomNonce, encrypt, decrypt } from '../primitives/symmetric';
-import { SymmetricKey } from '../types';
+import { SymmetricKey, PublicKey, CipherText, Nonce } from '../types';
 
 export interface EnvelopeHeader {
   counter: number;
   previousCounter: number;
-  publicKey: Uint8Array;
+  publicKey: PublicKey;
   additionalData?: Uint8Array;
 }
 
 export interface EncryptedEnvelope {
-  nonce: Uint8Array;
-  ciphertext: Uint8Array;
+  nonce: Nonce;
+  ciphertext: CipherText;
   header: EnvelopeHeader;
 }
 
@@ -23,4 +23,6 @@ export const seal = async (key: SymmetricKey, plaintext: Uint8Array, header: Env
 export const open = async (key: SymmetricKey, envelope: EncryptedEnvelope): Promise<Uint8Array> => {
   return decrypt(key, envelope.ciphertext, envelope.nonce, { additionalData: envelope.header.additionalData });
 };
+
+export const randomEnvelopeNonce = randomNonce;
 

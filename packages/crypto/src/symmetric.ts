@@ -14,14 +14,14 @@ export const randomNonce = async (): Promise<Nonce> => {
 export const encrypt = async (key: SymmetricKey, plaintext: Uint8Array, nonce: Nonce, options?: EncryptOptions): Promise<CipherText> => {
   const sodium = await ensureSodium();
   const ad = options?.additionalData ?? new Uint8Array();
-  const cipher = sodium[`${ALGORITHM}_encrypt`](plaintext, ad, undefined, nonce, key);
+  const cipher = sodium[`${ALGORITHM}_encrypt`](plaintext, ad, null, nonce, key);
   return brandCipherText(new Uint8Array(cipher));
 };
 
 export const decrypt = async (key: SymmetricKey, ciphertext: CipherText, nonce: Nonce, options?: EncryptOptions): Promise<Uint8Array> => {
   const sodium = await ensureSodium();
   const ad = options?.additionalData ?? new Uint8Array();
-  const plain = sodium[`${ALGORITHM}_decrypt`](undefined, ciphertext, ad, nonce, key);
+  const plain = sodium[`${ALGORITHM}_decrypt`](null, ciphertext, ad, nonce, key);
   return new Uint8Array(plain);
 };
 

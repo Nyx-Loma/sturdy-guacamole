@@ -82,6 +82,7 @@ export const createRecoveryService = (
   };
 
   const backupService = createRecoveryBackupService(repo, backup, metrics);
+  const repoForDeactivate = repo;
 
   const restore = async (accountId: string, mrc: Uint8Array, options?: { keepDeviceId?: string }) => {
     try {
@@ -130,6 +131,7 @@ export const createRecoveryService = (
 
   const rotate = async (accountId: string, code: string, backupInput: Parameters<typeof backupService.createBackup>[0]) => {
     await repo.delete(accountId);
+    await repoForDeactivate.deactivateBlobs(accountId);
     await backupService.deactivateBlobs(accountId);
     await setup(accountId, code);
     await backupService.createBackup(backupInput);

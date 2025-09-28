@@ -1,10 +1,16 @@
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import Fastify from 'fastify';
 import websocketPlugin from '@fastify/websocket';
-import type { SocketStream } from '@fastify/websocket';
-import type { FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { Config } from '@sanctum/config';
-import { WebSocketHub, createInMemoryResumeStore, createRedisResumeStore, createRedisStreamQueue, createQueueConsumer, redactToken } from '@sanctum/transport';
+import {
+  WebSocketHub,
+  createInMemoryResumeStore,
+  createRedisResumeStore,
+  createRedisStreamQueue,
+  createQueueConsumer,
+  redactToken
+} from '@sanctum/transport';
 import { RateLimiterMemory } from 'rate-limiter-flexible';
 import { collectDefaultMetrics } from 'prom-client';
 import Redis from 'ioredis';
@@ -75,13 +81,13 @@ export const createServer = async (config: Config, deps: BootstrapDeps = {}): Pr
       const header = requestHeaders.authorization ?? requestHeaders.Authorization;
       const token = Array.isArray(header) ? header[0] : header;
       if (!token || typeof token !== 'string') {
-        return null;
+        throw new Error('missing bearer token');
       }
 
       const match = token.match(/^Bearer\s+(.*)$/i);
       const bearer = match ? match[1] : token;
       if (bearer !== process.env.WS_DEV_TOKEN) {
-        return null;
+        throw new Error('invalid bearer token');
       }
 
       return {
@@ -136,12 +142,12 @@ export const createServer = async (config: Config, deps: BootstrapDeps = {}): Pr
 
   fastify.get('/health', async () => ({ status: 'ok' }));
 
-  fastify.get('/ws', { websocket: true }, (connection: SocketStream, request: FastifyRequest) => {
+  fastify.get('/ws', { websocket: true }, (socket, request: FastifyRequest) => {
     const clientId = request.id.toString();
-    const socket: WebSocket = 'socket' in connection ? (connection.socket as WebSocket) : (connection as unknown as WebSocket);
+    const ws = 'socket' in socket ? (socket.socket as WebSocket) : (socket as unknown as WebSocket);
 
     void (async () => {
-      const result = await hub.register(socket, clientId, request.headers);
+      const result = await hub.register(ws, clientId, request.headers);
       if (!result) {
         fastify.log.warn({ clientId }, 'websocket unauthorized');
         return;
@@ -149,23 +155,23 @@ export const createServer = async (config: Config, deps: BootstrapDeps = {}): Pr
 
       fastify.log.info({ clientId, resumeToken: redact(result.resumeToken) }, 'websocket connected');
 
-      socket.send(
+      ws.send(
         JSON.stringify({
           type: 'connection_ack',
           resumeToken: result.resumeToken
         })
       );
 
-      socket.on('message', (raw) => {
+      ws.on('message', (raw) => {
         void hub.handleMessage(clientId, raw);
       });
 
-      socket.on('close', (code, reason) => {
+      ws.on('close', (code, reason) => {
         fastify.log.info({ clientId, code, reason: reason.toString() }, 'websocket closed');
       });
     })().catch((error) => {
       fastify.log.error({ clientId, err: { name: (error as Error)?.name, message: (error as Error)?.message } }, 'websocket register failed');
-      socket.close(1011, 'internal_error');
+      ws.close(1011, 'internal_error');
     });
   });
 

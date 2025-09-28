@@ -4,7 +4,7 @@ import { MessageEnvelopeSchema, ResumePayloadSchema } from '../schemas';
 import type { ResumeResult } from '../types';
 import { logWithContext, redactToken, sanitizeError } from '../logging';
 
-export async function handleResume(connection: ReturnType<HubState['connections']['get']>, envelope: MessageEnvelope, state: HubState): Promise<ResumeResult> {
+export async function handleResume(connection: Exclude<ReturnType<HubState['connections']['get']>, undefined>, envelope: MessageEnvelope, state: HubState): Promise<ResumeResult> {
   const validation = MessageEnvelopeSchema.safeParse(envelope);
   if (!validation.success) {
     logWithContext(state.options.logger, 'warn', 'resume_invalid_envelope', {
