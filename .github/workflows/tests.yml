@@ -174,7 +174,7 @@ jobs:
       - name: Wait for Redis
         run: |
           for i in {1..30}; do
-            redis-cli -h localhost ping && break;
+            docker exec ${{ job.services.redis.id }} redis-cli ping && break;
             sleep 2;
           done
 
@@ -184,6 +184,7 @@ jobs:
       - name: Integration tests
         run: |
           pnpm vitest run \
+            --project=integration \
             --coverage=false \
             --reporter=default --reporter=junit \
             --outputFile=junit-integration.xml
