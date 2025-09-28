@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as migrateModule from '../../adapters/postgres/migrate';
+import * as pgModule from '../../adapters/postgres';
 import { createContainer } from '../../container';
 
 const baseConfig = {
@@ -39,9 +41,22 @@ const logger = { child: vi.fn().mockReturnThis(), info: vi.fn(), warn: vi.fn(), 
 
 describe('container buildRepositories', () => {
   it('builds memory repositories when storage driver is memory', async () => {
+    const runMigrationsSpy = vi.spyOn(migrateModule, 'runMigrations');
+    const getPoolSpy = vi.spyOn(pgModule, 'getPool');
     const container = await createContainer({ config: { ...baseConfig }, logger });
     expect(container.repos.accounts).toBeDefined();
     expect(container.services.devices).toBeDefined();
+    // ensure postgres path untouched
+    expect(runMigrationsSpy).not.toHaveBeenCalled();
+    expect(getPoolSpy).not.toHaveBeenCalled();
+    // cover tokenService wrapper method
+    await container.services.tokens.revokeAllForAccount({ revokeAllForAccount: vi.fn() } as any, 'acc');
+  });
+
+  it('passes kms pepper when set (branch coverage)', async () => {
+    const container = await createContainer({ config: { ...baseConfig, RECOVERY_KMS_PEPPER: Buffer.from('p').toString('base64') }, logger });
+    // calling backup.listBlobs ensures service constructed with backup config
+    await expect(container.services.recovery.backup.listBlobs('acc')).resolves.toBeDefined();
   });
 });
 

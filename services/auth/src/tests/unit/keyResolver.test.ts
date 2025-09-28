@@ -53,4 +53,29 @@ describe('createKeyResolver', () => {
     const resolver = createKeyResolver(baseConfig, { kmsClient });
     await expect(resolver.getVerificationKeys()).rejects.toThrow('kms returned incomplete signing key record');
   });
+
+  it('supports hex and base64url encodings and merge order', async () => {
+    const hex = Buffer.from('deadbeef', 'hex').toString('hex');
+    const b64url = Buffer.from('kms-2').toString('base64url');
+    const kmsRecords: SigningKeyRecord[] = [
+      { kid: 'hex', material: hex, encoding: 'hex', active: false },
+      { kid: 'b64url', material: b64url, encoding: 'base64url', active: true }
+    ];
+    const kmsClient: KmsClient = { fetchSigningKeys: vi.fn().mockResolvedValue(kmsRecords) };
+    const resolver = createKeyResolver({ ...baseConfig, JWT_ACTIVE_KID: 'b64url' }, { kmsClient });
+    const keys = await resolver.getVerificationKeys();
+    // active first
+    expect(keys[0].kid).toBe('b64url');
+    // env overridden by kms when same kid
+    const kmsRecords2: SigningKeyRecord[] = [{ kid: 'primary', material: Buffer.from('new').toString('base64'), encoding: 'base64', active: true }];
+    const resolver2 = createKeyResolver(baseConfig, { kmsClient: { fetchSigningKeys: vi.fn().mockResolvedValue(kmsRecords2) } });
+    const active2 = await resolver2.getActiveSigningKey();
+    expect(Buffer.from(active2.secret).toString()).toBe('new');
+  });
+
+  it('wraps kms fetch errors in InvalidSignatureError', async () => {
+    const kmsClient: KmsClient = { fetchSigningKeys: vi.fn().mockRejectedValue(new Error('boom')) };
+    const resolver = createKeyResolver(baseConfig, { kmsClient });
+    await expect(resolver.getVerificationKeys()).rejects.toThrow('kms signing key fetch failed: boom');
+  });
 });

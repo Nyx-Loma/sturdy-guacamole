@@ -13,7 +13,7 @@ const sodiumMock = {
 };
 
 vi.mocked(ensureSodium).mockResolvedValue(sodiumMock as any);
-const { encrypt, decrypt, randomNonce } = await import('../src/primitives/symmetric');
+const { encrypt, decrypt, randomNonce, deriveSymmetricKey } = await import('../src/primitives/symmetric');
 
 const key = (new Uint8Array(32).fill(7) as any);
 const nonce = new Uint8Array(24).fill(8);
@@ -33,5 +33,9 @@ describe('primitives/symmetric', () => {
   it('randomNonce uses sodium RNG', async () => {
     const result = await randomNonce();
     expect(result).toEqual(new Uint8Array(24).fill(9));
+  });
+
+  it('deriveSymmetricKey rejects invalid subkey id', async () => {
+    await expect(deriveSymmetricKey(new Uint8Array([1]), new Uint8Array([2]), 0)).rejects.toThrow('subkeyId must be a positive integer');
   });
 });
