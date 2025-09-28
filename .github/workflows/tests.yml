@@ -1,12 +1,10 @@
-name: CI
+name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
   pull_request:
-    branches: [main]
-  schedule:
-    - cron: '0 3 * * *'
+    branches: [staging]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -89,8 +87,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --project tsconfig.json --noEmit
 
-  unit:
-    name: Unit Tests
+  unit_node20:
+    name: Unit Tests (node20)
     needs: setup
     runs-on: ubuntu-latest
     strategy:
@@ -126,8 +124,8 @@ jobs:
           name: junit-unit-${{ matrix.shard }}
           path: junit-unit-${{ matrix.shard }}.xml
 
-  integration:
-    name: Integration Tests
+  integration_pg_redis:
+    name: Integration Tests (pg+redis)
     needs: [setup, lint, typecheck, unit]
     runs-on: ubuntu-latest
     services:
@@ -217,7 +215,7 @@ jobs:
 
   coverage:
     name: Coverage & Thresholds
-    needs: [unit, integration]
+    needs: [unit_node20, integration_pg_redis]
     runs-on: ubuntu-latest
     env:
       NODE_ENV: test
