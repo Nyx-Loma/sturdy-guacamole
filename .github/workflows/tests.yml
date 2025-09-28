@@ -151,8 +151,8 @@ jobs:
       NODE_ENV: test
       TZ: UTC
       STORAGE_DRIVER: postgres
-      POSTGRES_URL: postgres://postgres:postgres@localhost:55432/postgres
-      DATABASE_URL: postgres://postgres:postgres@localhost:55432/postgres
+      POSTGRES_URL: postgres://postgres:postgres@postgres:5432/postgres
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
       REDIS_URL: redis://localhost:6379
       CAPTCHA_PROVIDER: none
       KMS_MODE: inmemory
@@ -170,7 +170,7 @@ jobs:
       - name: Wait for Postgres
         run: |
           for i in {1..30}; do
-            pg_isready -h localhost -p 5432 -U sanctum && break;
+            pg_isready -h postgres -p 5432 -U postgres && break;
             sleep 2;
           done
 

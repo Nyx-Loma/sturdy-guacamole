@@ -9,31 +9,34 @@ import {
 } from '../../../adapters/postgres';
 import { randomUUID } from 'node:crypto';
 
-const POSTGRES_URL = process.env.POSTGRES_URL ?? 'postgres://postgres:postgres@localhost:55432/postgres';
+const POSTGRES_URL = process.env.POSTGRES_URL ?? (
+  process.env.CI ? 'postgres://postgres:postgres@postgres:5432/postgres' : 'postgres://postgres:postgres@127.0.0.1:55432/postgres'
+);
 
 const makeConfig = () => ({
   STORAGE_DRIVER: 'postgres',
-  POSTGRES_URL: POSTGRES_URL!,
+  POSTGRES_URL,
   POSTGRES_SCHEMA: 'auth'
 });
 
 describe('postgres adapters', () => {
-  let pool: ReturnType<typeof getPool>;
-  let accountsRepo: ReturnType<typeof createPostgresAccountsRepository>;
-  let devicesRepo: ReturnType<typeof createPostgresDevicesRepository>;
-  let tokensRepo: ReturnType<typeof createPostgresTokensRepository>;
-  let pairingRepo: ReturnType<typeof createPostgresPairingRepository>;
-  let recoveryRepo: ReturnType<typeof createPostgresRecoveryRepository>;
+  let pool: ReturnType<typeof getPool> | undefined;
+  let accountsRepo: ReturnType<typeof createPostgresAccountsRepository> | undefined;
+  let devicesRepo: ReturnType<typeof createPostgresDevicesRepository> | undefined;
+  let tokensRepo: ReturnType<typeof createPostgresTokensRepository> | undefined;
+  let pairingRepo: ReturnType<typeof createPostgresPairingRepository> | undefined;
+  let recoveryRepo: ReturnType<typeof createPostgresRecoveryRepository> | undefined;
 
   const truncateAll = async () => {
-    await pool.query('TRUNCATE auth.recovery_blobs, auth.recovery, auth.pairing_tokens, auth.refresh_tokens, auth.devices, auth.accounts RESTART IDENTITY CASCADE');
+    await pool!.query('TRUNCATE auth.recovery_blobs, auth.recovery, auth.pairing_tokens, auth.refresh_tokens, auth.devices, auth.accounts RESTART IDENTITY CASCADE');
   };
 
   beforeAll(async () => {
     const config = makeConfig();
     pool = getPool(config);
     await pool.query('CREATE SCHEMA IF NOT EXISTS auth');
-    await pool.query(await import('fs/promises').then((fs) => fs.readFile(process.cwd() + '/services/auth/src/adapters/postgres/migrations/001_init.sql', 'utf8')));
+    const sql = await import('fs/promises').then((fs) => fs.readFile(process.cwd() + '/services/auth/src/adapters/postgres/migrations/001_init.sql', 'utf8'));
+    await pool.query(sql);
     accountsRepo = createPostgresAccountsRepository(pool);
     devicesRepo = createPostgresDevicesRepository(pool);
     tokensRepo = createPostgresTokensRepository(pool);
@@ -42,18 +45,22 @@ describe('postgres adapters', () => {
   });
 
   afterAll(async () => {
+    if (!pool) {
+      return;
+    }
     await pool.query('DROP SCHEMA IF EXISTS auth CASCADE');
     await pool.end();
+    pool = undefined;
   });
 
   beforeEach(async () => {
     await truncateAll();
   });
 
-  const makeAccount = async () => accountsRepo.createAnonymous();
+  const makeAccount = async () => accountsRepo!.createAnonymous();
   const makeAccountAndDevice = async () => {
     const account = await makeAccount();
-    const device = await devicesRepo.create({
+    const device = await devicesRepo!.create({
       accountId: account.id,
       publicKey: 'pk',
       displayName: null,
