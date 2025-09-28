@@ -42,19 +42,16 @@ vi.mock('../../adapters/inMemory/tokensRepository', () => ({ createInMemoryToken
 vi.mock('../../adapters/inMemory/pairingRepository', () => ({ createInMemoryPairingRepository: mockCreateInMemoryPairingRepository }));
 vi.mock('../../adapters/inMemory/recoveryRepository', () => ({ createInMemoryRecoveryRepository: mockCreateInMemoryRecoveryRepository }));
 
-vi.mock('../../adapters/postgres', async () => {
-  const actual = await vi.importActual<typeof import('../../adapters/postgres')>('../../adapters/postgres');
-  return {
-    ...actual,
-    createPostgresAccountsRepository: mockCreatePostgresAccountsRepository,
-    createPostgresDevicesRepository: mockCreatePostgresDevicesRepository,
-    createPostgresTokensRepository: mockCreatePostgresTokensRepository,
-    createPostgresPairingRepository: mockCreatePostgresPairingRepository,
-    createPostgresRecoveryRepository: mockCreatePostgresRecoveryRepository
-  };
-});
+vi.mock('../../adapters/postgres', () => ({
+  createPostgresAccountsRepository: mockCreatePostgresAccountsRepository,
+  createPostgresDevicesRepository: mockCreatePostgresDevicesRepository,
+  createPostgresTokensRepository: mockCreatePostgresTokensRepository,
+  createPostgresPairingRepository: mockCreatePostgresPairingRepository,
+  createPostgresRecoveryRepository: mockCreatePostgresRecoveryRepository,
+  getPool: mockGetPool
+}));
 
-vi.mock('../../adapters/postgres/pool', () => ({ getPool: mockGetPool }));
+vi.mock('../../adapters/postgres/migrate', () => ({ runMigrations: vi.fn() }));
 
 vi.mock('../../domain/services/tokenService', () => ({ createTokenService: mockCreateTokenService }));
 vi.mock('../../domain/services/deviceAssertion', () => ({ createDeviceAssertionService: mockCreateDeviceAssertionService }));
