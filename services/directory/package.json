@@ -1,0 +1,15 @@
+{
+  "name": "@sanctum/directory",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --watch src/app/server.ts",
+    "start": "tsx src/app/server.ts -- --host 0.0.0.0 --port 8082",
+    "clean": "rimraf dist coverage .vite .eslintcache",
+    "test": "vitest --run --coverage",
+    "lint": "eslint --ext .ts src",
+    "typecheck": "tsc --noEmit"
+  }
+}
+
+
