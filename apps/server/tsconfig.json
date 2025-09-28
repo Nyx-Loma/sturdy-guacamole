@@ -10,8 +10,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["**/__tests__/**", "dist", "node_modules"],
   "references": [
-    { "path": "../../packages/config" },
-    { "path": "../../packages/transport" }
+    { "path": "../../packages/config/tsconfig.build.json" },
+    { "path": "../../packages/transport/tsconfig.build.json" }
   ]
 }
-
