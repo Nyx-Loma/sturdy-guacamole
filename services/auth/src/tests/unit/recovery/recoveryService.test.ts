@@ -141,6 +141,9 @@ describe('recoveryService', () => {
     const service = createRecoveryService(repo, { policy: defaultPolicy, backup: backupConfig, metrics }, deps);
     backupServiceStub.createBackup.mockResolvedValue('blob-id');
     repo.deactivateBlobs.mockResolvedValue(undefined);
+    backupServiceStub.listBlobs.mockResolvedValue([
+      { id: 'active', isActive: true, updatedAt: new Date(), blobVersion: 1, profile: 'desktop', sizeBytes: 64 }
+    ]);
 
     await service.rotate('acc', 'code', {
       accountId: 'acc',

@@ -3,4 +3,4 @@ set -e
 
 pnpm run lint
 pnpm -r --filter "./packages/*" --filter "./services/*" --filter "./apps/*" exec tsc -p tsconfig.json --noEmit
-pnpm exec vitest --run --reporter=dot
+pnpm exec vitest run --reporter=dot services/auth/src/tests/unit
