@@ -137,7 +137,7 @@ jobs:
           POSTGRES_USER: sanctum
           POSTGRES_PASSWORD: sanctum
           POSTGRES_DB: sanctum
-        ports: ['5432:5432']
+        ports: ['55432:5432']
         options: >-
           --health-cmd="pg_isready -U sanctum -d sanctum"
           --health-interval=5s --health-timeout=5s --health-retries=20
