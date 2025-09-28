@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, defineProject } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -43,9 +43,9 @@ const coverageThresholds = {
 } as const;
 
 const projects = [
-  {
-    name: 'unit',
+  defineProject({
     test: {
+      name: 'unit',
       include: [
         'packages/**/__tests__/**/*.test.ts',
         'services/**/src/tests/unit/**/*.test.ts',
@@ -54,21 +54,26 @@ const projects = [
       ],
       setupFiles: ['packages/crypto/vitest.setup.ts']
     }
-  },
-  {
-    name: 'integration',
+  }),
+  defineProject({
     test: {
-      include: ['services/**/src/tests/integration/**/*.test.ts', 'services/**/src/tests/e2e/**/*.test.ts', 'services/**/tests/integration/**/*.test.ts', 'services/**/tests/e2e/**/*.test.ts'],
+      name: 'integration',
+      include: [
+        'services/**/src/tests/integration/**/*.test.ts',
+        'services/**/src/tests/e2e/**/*.test.ts',
+        'services/**/tests/integration/**/*.test.ts',
+        'services/**/tests/e2e/**/*.test.ts'
+      ],
       setupFiles: ['packages/crypto/vitest.setup.ts']
     }
-  },
-  {
-    name: 'security',
+  }),
+  defineProject({
     test: {
+      name: 'security',
       include: ['services/**/src/tests/security/**/*.test.ts', 'services/**/tests/security/**/*.test.ts'],
       setupFiles: ['packages/crypto/vitest.setup.ts']
     }
-  }
+  })
 ];
 
 export default defineConfig({
