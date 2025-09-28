@@ -1,7 +1,8 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { bootstrap } from '../../app/bootstrap';
 import { getPublicKey, sign, utils as edUtils, hashes } from '@noble/ed25519';
 import { createHash, randomBytes } from 'node:crypto';
+import { resetConfigForTests } from '../../config';
 
 const hash512 = (message: Uint8Array) => {
   const digest = createHash('sha512').update(Buffer.from(message)).digest();
@@ -12,6 +13,13 @@ beforeAll(() => {
   hashes.sha512 = hash512;
   edUtils.sha512Sync ??= hash512;
   edUtils.sha512 ??= async (message: Uint8Array) => hash512(message);
+});
+
+beforeEach(() => {
+  resetConfigForTests();
+  process.env.STORAGE_DRIVER = 'memory';
+  process.env.CAPTCHA_PROVIDER = 'none';
+  delete process.env.POSTGRES_URL;
 });
 
 const setupAccountAndDevice = async (container: any, privateKey: Uint8Array) => {

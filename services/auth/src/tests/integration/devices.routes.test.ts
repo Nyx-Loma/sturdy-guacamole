@@ -9,6 +9,7 @@ const buildServer = async (setup?: (container: Awaited<ReturnType<typeof createC
   resetConfigForTests();
   process.env.STORAGE_DRIVER = 'memory';
   process.env.CAPTCHA_PROVIDER = 'none';
+  delete process.env.POSTGRES_URL;
   const config = loadConfig();
   const logger = createLogger({ level: 'error' });
   const container = await createContainer({ config, logger });

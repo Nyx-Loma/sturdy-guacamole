@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { bootstrap } from '../../app/bootstrap';
+import { resetConfigForTests } from '../../config';
 
 const setupAccount = async (container: any) => {
   const account = await container.repos.accounts.createAnonymous();
@@ -12,6 +13,12 @@ const setupAccount = async (container: any) => {
 };
 
 describe('pairing flow', () => {
+  beforeEach(() => {
+    resetConfigForTests();
+    process.env.STORAGE_DRIVER = 'memory';
+    process.env.CAPTCHA_PROVIDER = 'none';
+    delete process.env.POSTGRES_URL;
+  });
   it('runs init -> complete -> approve when captcha allows', async () => {
     const boot = await bootstrap({ services: { captcha: { verify: async () => true } } });
     const { server, container } = boot;
