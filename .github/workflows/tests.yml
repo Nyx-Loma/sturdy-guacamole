@@ -186,9 +186,7 @@ jobs:
           pnpm vitest run \
             --coverage=false \
             --reporter=default --reporter=junit \
-            --outputFile=junit-integration.xml \
-            --retry=2 --retry-delay=200 \
-            --include services/auth/src/tests/integration/**/*.test.ts
+            --outputFile=junit-integration.xml
 
       - name: Upload integration reports
         if: always()

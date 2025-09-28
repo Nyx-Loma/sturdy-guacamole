@@ -64,7 +64,9 @@ const projects = [
         'services/**/tests/integration/**/*.test.ts',
         'services/**/tests/e2e/**/*.test.ts'
       ],
-      setupFiles: ['packages/crypto/vitest.setup.ts']
+      setupFiles: ['packages/crypto/vitest.setup.ts'],
+      retry: 2,
+      retryDelay: 200
     }
   }),
   defineProject({
