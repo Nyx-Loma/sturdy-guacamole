@@ -17,9 +17,10 @@ import {
   createPostgresDevicesRepository,
   createPostgresTokensRepository,
   createPostgresPairingRepository,
-  createPostgresRecoveryRepository
+  createPostgresRecoveryRepository,
+  getPool
 } from '../adapters/postgres';
-import { getPool } from '../adapters/postgres/pool';
+import { runMigrations } from '../adapters/postgres/migrate';
 import { createKeyResolver } from '../domain/keys';
 import { createCaptchaService } from '../domain/captcha/service';
 import { createRecoveryBackupService } from '../domain/services/recoveryBackup';
@@ -67,8 +68,9 @@ export interface Container {
 
 const sharedMetrics = new AuthMetrics();
 
-const buildRepositories = (config: Config) => {
+const buildRepositories = async (config: Config) => {
   if (config.STORAGE_DRIVER === 'postgres') {
+    await runMigrations(config);
     const pool = getPool(config);
     return {
       accounts: createPostgresAccountsRepository(pool),
@@ -114,7 +116,7 @@ const extendTokenService = (service: ReturnType<typeof createTokenService>): Tok
 });
 
 export const createContainer = async ({ config, logger }: { config: Config; logger: Logger }): Promise<Container> => {
-  const repos = buildRepositories(config);
+  const repos = await buildRepositories(config);
   const tokenService = extendTokenService(createTokenService({ config, keyResolver: createKeyResolver(config) }));
   const accountService = createAccountService(repos.accounts);
   const deviceService = extendDeviceService(createDeviceService(repos.devices, config.DEVICE_MAX_PER_ACCOUNT), repos.devices);

@@ -27,14 +27,16 @@ describe('scripts/migrate runMigrations', () => {
 
   it('skips when STORAGE_DRIVER is not postgres', async () => {
     process.env.STORAGE_DRIVER = 'memory';
-    const { runMigrations } = await import('../../scripts/migrate');
+    const module = await import('../../scripts/migrate');
+    const runMigrations = module.runMigrations ?? module.migrate ?? module.default;
     await expect(runMigrations()).resolves.toBeUndefined();
   });
 
   it('throws when postgres driver but url missing', async () => {
     process.env.STORAGE_DRIVER = 'postgres';
     delete process.env.POSTGRES_URL;
-    const { runMigrations } = await import('../../scripts/migrate');
+    const module = await import('../../scripts/migrate');
+    const runMigrations = module.runMigrations ?? module.migrate ?? module.default;
     await expect(runMigrations()).rejects.toSatisfy((error: unknown) => {
       if (Array.isArray(error)) {
         return error.some((issue) => issue.path?.[0] === 'POSTGRES_URL');
@@ -52,7 +54,8 @@ describe('scripts/migrate runMigrations', () => {
   it('applies migrations when configured for postgres', async () => {
     process.env.STORAGE_DRIVER = 'postgres';
     process.env.POSTGRES_URL = 'postgres://localhost/test';
-    const { runMigrations } = await import('../../scripts/migrate');
+    const module = await import('../../scripts/migrate');
+    const runMigrations = module.runMigrations ?? module.migrate ?? module.default;
     await runMigrations();
     const { Pool }: { Pool: ReturnType<typeof vi.fn> } = await import('pg');
     const poolInstance = Pool.mock.results[0].value;
