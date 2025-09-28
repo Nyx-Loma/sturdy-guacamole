@@ -32,6 +32,12 @@ const groups = [
     minimum: { lines: 0.9, statements: 0.9, branches: 0.85, functions: 0.9 }
   },
   {
+    name: 'services/directory',
+    include: [/^services\/directory\/src\//],
+    exclude: [/^services\/directory\/src\/tests\//],
+    minimum: { lines: 0.9, statements: 0.9, branches: 0.85, functions: 0.9 }
+  },
+  {
     name: 'global',
     include: [/^services\/[^/]+\/src\//, /^packages\/[^/]+\/src\//, /^apps\/[^/]+\/src\//],
     exclude: [/\/src\/tests\//, /^scripts\//],

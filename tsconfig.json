@@ -6,6 +6,7 @@
     { "path": "packages/crypto/tsconfig.build.json" },
     { "path": "packages/transport/tsconfig.build.json" },
     { "path": "services/auth" },
+    { "path": "services/directory" },
     { "path": "apps/server" }
   ]
 }

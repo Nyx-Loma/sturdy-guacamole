@@ -12,37 +12,32 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16-alpine
         env:
-          POSTGRES_USER: auth
-          POSTGRES_PASSWORD: auth
-          POSTGRES_DB: auth
-        ports:
-          - 5432:5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
         options: >-
-          --health-cmd "pg_isready -d auth -U auth" \
-          --health-interval 5s \
-          --health-timeout 5s \
-          --health-retries 20
+          --health-cmd="pg_isready -U postgres -d postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
 
       redis:
-        image: redis:7
-        ports:
-          - 6379:6379
+        image: redis:7-alpine
         options: >-
-          --health-cmd "redis-cli ping" \
-          --health-interval 5s \
-          --health-timeout 5s \
-          --health-retries 20
+          --health-cmd="redis-cli ping || exit 1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
 
     env:
       CI: true
       NODE_ENV: test
       STORAGE_DRIVER: memory
-      # For integration tests that need Postgres, this URL will be used if enabled
-      POSTGRES_URL: postgres://auth:auth@localhost:5432/auth
-      # Redis URL for any tests that use it
-      REDIS_URL: redis://localhost:6379
+      # Use internal service hostnames
+      POSTGRES_URL: postgres://postgres:postgres@postgres:5432/postgres
+      REDIS_URL: redis://redis:6379
       # JWT defaults to avoid schema failures
       JWT_SECRET: test-secret
       JWT_ISSUER: arqivo-auth
@@ -58,7 +53,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Prepare pnpm via corepack
+        run: corepack prepare pnpm@9 --activate
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -75,8 +80,20 @@ jobs:
           echo "WORKSPACE DIR: $(pwd)"
           ls -la
 
-      - name: Wait for services (Postgres & Redis)
-        run: pnpm dlx wait-on tcp:localhost:5432 tcp:localhost:6379
+      - name: Wait for Postgres
+        shell: bash
+        run: |
+          for i in {1..60}; do
+            (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1 && break
+            sleep 2
+          done
+      - name: Wait for Redis
+        shell: bash
+        run: |
+          for i in {1..60}; do
+            (echo > /dev/tcp/redis/6379) >/dev/null 2>&1 && break
+            sleep 2
+          done
 
       - name: Typecheck
         run: pnpm typecheck

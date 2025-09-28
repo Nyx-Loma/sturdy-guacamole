@@ -121,24 +121,22 @@ jobs:
     runs-on: ubuntu-latest
     env:
       STORAGE_DRIVER: postgres
-      POSTGRES_URL: postgresql://postgres:postgres@localhost:55432/postgres
-      REDIS_URL: redis://localhost:56379
+      POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      REDIS_URL: redis://redis:6379
       TURNSTILE_SECRET: test-secret
       KMS_MOCK: "true"
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16-alpine
         env:
           POSTGRES_PASSWORD: postgres
-        ports: ["55432:5432"]
         options: >-
-          --health-cmd="pg_isready -U postgres"
+          --health-cmd="pg_isready -U postgres -d postgres"
           --health-interval=3s
           --health-timeout=3s
           --health-retries=20
       redis:
-        image: redis:7
-        ports: ["56379:6379"]
+        image: redis:7-alpine
         options: >-
           --health-cmd="redis-cli ping || exit 1"
           --health-interval=3s
@@ -167,12 +165,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Wait for Postgres
+        shell: bash
         run: |
           for i in {1..60}; do
-            pg_isready -d "${POSTGRES_URL}" && exit 0
+            (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1 && break
             sleep 1
           done
-          echo "Postgres not ready"; exit 1
 
       - name: Run DB migrations (auth)
         run: pnpm --filter services/auth run migrate
@@ -208,25 +206,23 @@ jobs:
     continue-on-error: true
     env:
       STORAGE_DRIVER: postgres
-      POSTGRES_URL: postgresql://postgres:postgres@localhost:55432/postgres
-      REDIS_URL: redis://localhost:56379
+      POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      REDIS_URL: redis://redis:6379
       TURNSTILE_SECRET: test-secret
       KMS_MOCK: "true"
       VITEST_MAX_THREADS: 2
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16-alpine
         env:
           POSTGRES_PASSWORD: postgres
-        ports: ["55432:5432"]
         options: >-
           --health-cmd="pg_isready -U postgres"
           --health-interval=3s
           --health-timeout=3s
           --health-retries=20
       redis:
-        image: redis:7
-        ports: ["56379:6379"]
+        image: redis:7-alpine
         options: >-
           --health-cmd="redis-cli ping || exit 1"
           --health-interval=3s

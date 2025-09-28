@@ -16,3 +16,7 @@ Sanctum follows the [🛡️ Last Layer Runbook](./RUNBOOK.md).
 
 No exceptions. Read the full [Runbook](./RUNBOOK.md) before shipping.
 
+## 📊 GA Readiness
+
+See the detailed audit and per-service roadmap: [GA_READINESS.md](./GA_READINESS.md)
+

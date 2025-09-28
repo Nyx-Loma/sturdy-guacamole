@@ -16,9 +16,11 @@
       "@sanctum/config": ["packages/config/src/index"],
       "@sanctum/transport": ["packages/transport/src/index"],
       "@sanctum/crypto": ["packages/crypto/src/index"],
+      "@sanctum/directory/config": ["services/directory/src/config/index"],
       "@sanctum/config/*": ["packages/config/src/*"],
       "@sanctum/transport/*": ["packages/transport/src/*"],
-      "@sanctum/crypto/*": ["packages/crypto/src/*"]
+      "@sanctum/crypto/*": ["packages/crypto/src/*"],
+      "@sanctum/directory/*": ["services/directory/src/*"]
     }
   },
   "include": [
