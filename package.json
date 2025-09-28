@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "echo \"build pipeline not yet implemented\"",
+    "clean": "rimraf dist coverage .vite .eslintcache",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "build": "tsc -b",
     "lint": "eslint --report-unused-disable-directives --max-warnings=0 .",
-    "test": "vitest --run",
-    "coverage": "vitest --run --coverage",
+    "test": "vitest --run --coverage",
     "check:coverage": "node ./scripts/check-coverage.mjs",
     "migrate:auth": "pnpm --filter services/auth run migrate",
     "prepare": "husky"
@@ -28,6 +29,7 @@
     "lint-staged": "^16.2.1",
     "pino": "^9.11.0",
     "prettier": "3.6.2",
+    "rimraf": "^6.0.1",
     "tsx": "4.20.5",
     "typescript": "5.9.2",
     "typescript-eslint": "8.44.1",

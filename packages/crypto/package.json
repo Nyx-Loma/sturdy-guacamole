@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "clean": "rimraf dist coverage .vite .eslintcache"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./backup/derive": "./src/backup/derive.ts"

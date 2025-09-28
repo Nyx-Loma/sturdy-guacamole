@@ -5,8 +5,10 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**'],
+  },
+  {
     files: ['**/*.ts'],
-    ignores: ['dist/**', 'node_modules/**'],
     languageOptions: {
       parserOptions: {
         projectService: false,

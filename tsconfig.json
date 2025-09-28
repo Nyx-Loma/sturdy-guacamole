@@ -2,9 +2,9 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "files": [],
   "references": [
-    { "path": "packages/config" },
-    { "path": "packages/crypto" },
-    { "path": "packages/transport" },
+    { "path": "packages/config/tsconfig.build.json" },
+    { "path": "packages/crypto/tsconfig.build.json" },
+    { "path": "packages/transport/tsconfig.build.json" },
     { "path": "services/auth" },
     { "path": "apps/server" }
   ]

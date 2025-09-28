@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx --watch src/app/server.ts",
     "start": "tsx src/app/server.ts -- --host 0.0.0.0 --port 8081",
-    "migrate": "tsx scripts/migrate.ts"
+    "migrate": "tsx scripts/migrate.ts",
+    "clean": "rimraf dist coverage .vite .eslintcache"
   }
 }

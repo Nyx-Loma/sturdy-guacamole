@@ -11,6 +11,19 @@ const coverageThresholds = {
   functions: 85,
   statements: 85,
   branches: 75,
+  include: [
+    'apps/**/src/**/*.ts',
+    'packages/**/src/**/*.ts',
+    'services/**/src/**/*.ts'
+  ],
+  exclude: [
+    '**/dist/**',
+    '**/__tests__/**',
+    '**/tests/**',
+    '**/*.d.ts',
+    '**/scripts/**',
+    '**/vitest.setup.ts'
+  ],
   thresholds: {
     perFile: {
       'services/auth/src/**': {

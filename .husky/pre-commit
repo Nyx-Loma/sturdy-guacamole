@@ -1,3 +1,7 @@
 #!/usr/bin/env sh
 set -e
-pnpm exec lint-staged
+
+pnpm -r run clean
+pnpm lint
+pnpm exec tsc --project tsconfig.json --noEmit
+pnpm vitest --run --silent

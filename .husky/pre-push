@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 set -e
 
-pnpm run lint
-pnpm -r --filter "./packages/*" --filter "./services/*" --filter "./apps/*" exec tsc -p tsconfig.json --noEmit
-pnpm exec vitest run --reporter=dot services/auth/src/tests/unit
+pnpm -r run clean
+pnpm exec tsc --project tsconfig.json --noEmit
+pnpm vitest --run --coverage --silent
