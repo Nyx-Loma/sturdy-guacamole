@@ -45,7 +45,9 @@ describe('auth login', () => {
       url: '/v1/auth/nonce',
       payload: { account_id: account.id, device_id: device.id }
     });
+    expect(nonceRes.statusCode).toBe(200);
     const nonce = nonceRes.json().nonce;
+    expect(nonce).toBeDefined();
     const signature = await sign(Buffer.from(nonce), privateKey);
 
     const loginRes = await server.app.inject({
@@ -78,7 +80,9 @@ describe('auth login', () => {
       url: '/v1/auth/nonce',
       payload: { account_id: account.id, device_id: device.id }
     });
+    expect(nonceRes.statusCode).toBe(200);
     const nonce = nonceRes.json().nonce;
+    expect(nonce).toBeDefined();
     const signature = await sign(Buffer.from(nonce), privateKey);
 
     const loginRes = await server.app.inject({

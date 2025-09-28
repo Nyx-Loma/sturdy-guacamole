@@ -154,7 +154,7 @@ jobs:
       STORAGE_DRIVER: postgres
       POSTGRES_URL: postgres://postgres:postgres@postgres:5432/postgres
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
-      REDIS_URL: redis://localhost:6379
+      REDIS_URL: redis://redis:6379
       CAPTCHA_PROVIDER: none
       KMS_MODE: inmemory
       RATE_LIMIT_DISABLED: 'true'
