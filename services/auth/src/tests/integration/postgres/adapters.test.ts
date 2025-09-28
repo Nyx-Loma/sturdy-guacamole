@@ -10,52 +10,46 @@ import {
 import { randomUUID } from 'node:crypto';
 
 const POSTGRES_URL = process.env.POSTGRES_URL ?? 'postgres://postgres:postgres@localhost:55432/postgres';
-const SKIP = !POSTGRES_URL;
-
-if (SKIP) {
-  describe.skip('postgres adapters', () => {
-    it('skipped because POSTGRES_URL not configured', () => {
-      expect(true).toBe(true);
-    });
-  });
-  // Early exit from this module when skipping
-  throw new Error('SKIPPING_POSTGRES_ADAPTER_TESTS');
-}
 
 const makeConfig = () => ({
   STORAGE_DRIVER: 'postgres',
-  POSTGRES_URL,
+  POSTGRES_URL: POSTGRES_URL!,
   POSTGRES_SCHEMA: 'auth'
 });
 
-beforeAll(async () => {
-  const pool = getPool(makeConfig());
-  await pool.query('CREATE SCHEMA IF NOT EXISTS auth');
-  await pool.query(await import('fs/promises').then((fs) => fs.readFile(process.cwd() + '/services/auth/src/adapters/postgres/migrations/001_init.sql', 'utf8')));
-});
-
-afterAll(async () => {
-  const pool = getPool(makeConfig());
-  await pool.query('DROP SCHEMA IF EXISTS auth CASCADE');
-  await pool.end();
-});
-
-const pool = getPool(makeConfig());
-const accountsRepo = createPostgresAccountsRepository(pool);
-const devicesRepo = createPostgresDevicesRepository(pool);
-const tokensRepo = createPostgresTokensRepository(pool);
-const pairingRepo = createPostgresPairingRepository(pool);
-const recoveryRepo = createPostgresRecoveryRepository(pool);
-
-const truncateAll = async () => {
-  await pool.query('TRUNCATE auth.recovery_blobs, auth.recovery, auth.pairing_tokens, auth.refresh_tokens, auth.devices, auth.accounts RESTART IDENTITY CASCADE');
-};
-
-beforeEach(async () => {
-  await truncateAll();
-});
-
 describe('postgres adapters', () => {
+  let pool: ReturnType<typeof getPool>;
+  let accountsRepo: ReturnType<typeof createPostgresAccountsRepository>;
+  let devicesRepo: ReturnType<typeof createPostgresDevicesRepository>;
+  let tokensRepo: ReturnType<typeof createPostgresTokensRepository>;
+  let pairingRepo: ReturnType<typeof createPostgresPairingRepository>;
+  let recoveryRepo: ReturnType<typeof createPostgresRecoveryRepository>;
+
+  const truncateAll = async () => {
+    await pool.query('TRUNCATE auth.recovery_blobs, auth.recovery, auth.pairing_tokens, auth.refresh_tokens, auth.devices, auth.accounts RESTART IDENTITY CASCADE');
+  };
+
+  beforeAll(async () => {
+    const config = makeConfig();
+    pool = getPool(config);
+    await pool.query('CREATE SCHEMA IF NOT EXISTS auth');
+    await pool.query(await import('fs/promises').then((fs) => fs.readFile(process.cwd() + '/services/auth/src/adapters/postgres/migrations/001_init.sql', 'utf8')));
+    accountsRepo = createPostgresAccountsRepository(pool);
+    devicesRepo = createPostgresDevicesRepository(pool);
+    tokensRepo = createPostgresTokensRepository(pool);
+    pairingRepo = createPostgresPairingRepository(pool);
+    recoveryRepo = createPostgresRecoveryRepository(pool);
+  });
+
+  afterAll(async () => {
+    await pool.query('DROP SCHEMA IF EXISTS auth CASCADE');
+    await pool.end();
+  });
+
+  beforeEach(async () => {
+    await truncateAll();
+  });
+
   const makeAccount = async () => accountsRepo.createAnonymous();
   const makeAccountAndDevice = async () => {
     const account = await makeAccount();
