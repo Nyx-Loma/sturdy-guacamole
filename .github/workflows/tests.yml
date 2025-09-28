@@ -112,7 +112,7 @@ jobs:
       - name: Run unit shard ${{ matrix.shard }}
         run: |
           pnpm vitest run \
-            --project unit \
+            --project=unit \
             --coverage=false \
             --reporter=default --reporter=junit \
             --outputFile=junit-unit-${{ matrix.shard }}.xml
