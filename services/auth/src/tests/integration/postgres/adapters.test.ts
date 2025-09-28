@@ -9,9 +9,7 @@ import {
 } from '../../../adapters/postgres';
 import { randomUUID } from 'node:crypto';
 
-const POSTGRES_URL = process.env.POSTGRES_URL ?? (
-  process.env.CI ? 'postgres://postgres:postgres@postgres:5432/postgres' : 'postgres://postgres:postgres@127.0.0.1:55432/postgres'
-);
+const POSTGRES_URL = process.env.POSTGRES_URL ?? 'postgres://postgres:postgres@127.0.0.1:55432/postgres';
 
 const makeConfig = () => ({
   STORAGE_DRIVER: 'postgres',
