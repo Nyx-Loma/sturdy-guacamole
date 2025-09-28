@@ -1,5 +1,7 @@
 CREATE SCHEMA IF NOT EXISTS auth;
 
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 CREATE TABLE IF NOT EXISTS auth.accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   status TEXT NOT NULL,
