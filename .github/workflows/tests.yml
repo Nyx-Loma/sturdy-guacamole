@@ -84,7 +84,7 @@ jobs:
         with:
           version: 9
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec tsc -b --noEmit
+      - run: pnpm exec tsc --project tsconfig.json --noEmit
 
   unit:
     name: Unit Tests
