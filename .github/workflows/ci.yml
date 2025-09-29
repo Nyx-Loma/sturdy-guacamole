@@ -19,31 +19,34 @@ jobs:
           POSTGRES_DB: postgres
         options: >-
           --health-cmd="pg_isready -U postgres -d postgres"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
+          --health-interval=10s
+          --health-timeout=10s
+          --health-retries=30
 
       redis:
         image: redis:7-alpine
         options: >-
           --health-cmd="redis-cli ping || exit 1"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
+          --health-interval=10s
+          --health-timeout=10s
+          --health-retries=30
 
     env:
       CI: true
       NODE_ENV: test
       STORAGE_DRIVER: memory
-      # Use internal service hostnames
+      # Use internal service hostnames (set both for compatibility)
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
       POSTGRES_URL: postgres://postgres:postgres@postgres:5432/postgres
       REDIS_URL: redis://redis:6379
       # JWT defaults to avoid schema failures
-      JWT_SECRET: test-secret
-      JWT_ISSUER: arqivo-auth
-      JWT_AUDIENCE: arqivo-client
+      JWT_SECRET: test-secret-min-32-chars-long-for-security
+      JWT_ISSUER: sanctum-auth
+      JWT_AUDIENCE: sanctum-client
       # Disable captcha/externals in CI
       CAPTCHA_PROVIDER: none
+      KMS_MODE: inmemory
+      RATE_LIMIT_DISABLED: 'true'
 
     steps:
       - name: Checkout
@@ -65,11 +68,6 @@ jobs:
         with:
           version: 9
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -83,17 +81,54 @@ jobs:
       - name: Wait for Postgres
         shell: bash
         run: |
+          echo "🔍 Checking Postgres DNS resolution..."
+          getent hosts postgres || echo "⚠️  DNS not yet resolved (normal in CI)"
+          
+          echo "⏳ Waiting for Postgres to be ready..."
           for i in {1..60}; do
-            (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1 && break
-            sleep 2
+            echo "  Attempt $i/60: Testing Postgres connection..."
+            if (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1; then
+              echo "✅ Postgres is accepting connections!"
+              sleep 2
+              break
+            fi
+            
+            if [ $i -eq 60 ]; then
+              echo "❌ ERROR: Postgres failed to become ready after 3 minutes"
+              echo "📋 Debugging info:"
+              getent hosts postgres || echo "Cannot resolve postgres hostname"
+              exit 1
+            fi
+            
+            sleep 3
           done
+          echo "✅ Postgres is READY!"
+
       - name: Wait for Redis
         shell: bash
         run: |
+          echo "🔍 Checking Redis DNS resolution..."
+          getent hosts redis || echo "⚠️  DNS not yet resolved (normal in CI)"
+          
+          echo "⏳ Waiting for Redis to be ready..."
           for i in {1..60}; do
-            (echo > /dev/tcp/redis/6379) >/dev/null 2>&1 && break
-            sleep 2
+            echo "  Attempt $i/60: Testing Redis connection..."
+            if (echo > /dev/tcp/redis/6379) >/dev/null 2>&1; then
+              echo "✅ Redis is accepting connections!"
+              sleep 2
+              break
+            fi
+            
+            if [ $i -eq 60 ]; then
+              echo "❌ ERROR: Redis failed to become ready after 3 minutes"
+              echo "📋 Debugging info:"
+              getent hosts redis || echo "Cannot resolve redis hostname"
+              exit 1
+            fi
+            
+            sleep 3
           done
+          echo "✅ Redis is READY!"
 
       - name: Typecheck
         run: pnpm typecheck
