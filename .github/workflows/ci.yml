@@ -128,6 +128,23 @@ jobs:
             sleep 2
           done
 
+      - name: Verify database connectivity
+        run: |
+          echo "🔍 Verifying database connectivity..."
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "
+            SELECT 
+              current_database() as database,
+              current_user as user,
+              version() as version;
+          "
+          echo "✅ Database is ready and accepting queries"
+          
+          echo "🔍 Verifying Redis connectivity..."
+          redis-cli -h localhost -p 6379 SET test_ci_key "ci_works"
+          redis-cli -h localhost -p 6379 GET test_ci_key
+          redis-cli -h localhost -p 6379 DEL test_ci_key
+          echo "✅ Redis is ready and accepting commands"
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -135,8 +152,16 @@ jobs:
         run: pnpm lint
 
       - name: Run tests with coverage
-        run: pnpm test
+        run: |
+          echo "🧪 Running tests with coverage..."
+          echo "Environment check:"
+          echo "  DATABASE_URL: ${DATABASE_URL}"
+          echo "  REDIS_URL: ${REDIS_URL}"
+          echo "  NODE_ENV: ${NODE_ENV}"
+          pnpm test
 
       - name: Enforce coverage thresholds
-        run: pnpm run check:coverage
+        run: |
+          echo "📊 Checking coverage thresholds..."
+          pnpm run check:coverage
 
