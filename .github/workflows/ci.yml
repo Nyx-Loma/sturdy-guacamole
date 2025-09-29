@@ -17,28 +17,34 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd="pg_isready -U postgres -d postgres"
-          --health-interval=10s
-          --health-timeout=10s
-          --health-retries=30
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
 
       redis:
         image: redis:7-alpine
+        ports:
+          - 6379:6379
         options: >-
           --health-cmd="redis-cli ping || exit 1"
-          --health-interval=10s
-          --health-timeout=10s
-          --health-retries=30
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=20s
 
     env:
       CI: true
       NODE_ENV: test
       STORAGE_DRIVER: memory
-      # Use internal service hostnames (set both for compatibility)
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
-      POSTGRES_URL: postgres://postgres:postgres@postgres:5432/postgres
-      REDIS_URL: redis://redis:6379
+      # Use localhost with mapped ports (more reliable in GH Actions)
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+      REDIS_URL: redis://localhost:6379
       # JWT defaults to avoid schema failures
       JWT_SECRET: test-secret-min-32-chars-long-for-security
       JWT_ISSUER: sanctum-auth
@@ -87,77 +93,40 @@ jobs:
           redis-cli --version
 
       - name: Wait for Postgres
-        shell: bash
         run: |
-          echo "🔍 Checking Postgres DNS resolution..."
-          getent hosts postgres || echo "⚠️  DNS not yet resolved (normal in CI)"
-          
-          echo "⏳ Waiting for Postgres to be ready..."
-          for i in {1..60}; do
-            echo "  Attempt $i/60: Testing Postgres with pg_isready..."
-            
-            # Use pg_isready to properly check if Postgres is accepting queries
-            if pg_isready -h postgres -p 5432 -U postgres -d postgres -t 5 2>&1 | grep -q "accepting connections"; then
-              echo "✅ Postgres is accepting connections!"
-              
-              # Double-check with a simple query
-              if PGPASSWORD=postgres psql -h postgres -U postgres -d postgres -c "SELECT 1" >/dev/null 2>&1; then
-                echo "✅ Postgres is fully ready and accepting queries!"
-                break
-              else
-                echo "⚠️  Postgres accepting connections but not ready for queries yet..."
-              fi
+          echo "⏳ Waiting for Postgres to be ready on localhost:5432..."
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres -d postgres >/dev/null 2>&1; then
+              echo "✅ Postgres is ready!"
+              PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "SELECT version();"
+              break
             fi
-            
-            if [ $i -eq 60 ]; then
-              echo "❌ ERROR: Postgres failed to become ready after 3 minutes"
-              echo "📋 Debugging info:"
-              getent hosts postgres || echo "Cannot resolve postgres hostname"
-              echo "Last pg_isready output:"
-              pg_isready -h postgres -p 5432 -U postgres -d postgres -t 5 || true
+            if [ $i -eq 30 ]; then
+              echo "❌ Postgres failed to start"
+              pg_isready -h localhost -p 5432 -U postgres -d postgres || true
               exit 1
             fi
-            
-            sleep 3
+            echo "  Attempt $i/30..."
+            sleep 2
           done
-          echo "✅ Postgres is READY!"
 
       - name: Wait for Redis
-        shell: bash
         run: |
-          echo "🔍 Checking Redis DNS resolution..."
-          getent hosts redis || echo "⚠️  DNS not yet resolved (normal in CI)"
-          
-          echo "⏳ Waiting for Redis to be ready..."
-          for i in {1..60}; do
-            echo "  Attempt $i/60: Testing Redis with redis-cli..."
-            
-            # Use redis-cli to properly check if Redis is responding
-            if redis-cli -h redis -p 6379 ping 2>&1 | grep -q "PONG"; then
-              echo "✅ Redis is responding to PING!"
-              
-              # Additional check: try to set and get a test key
-              if redis-cli -h redis -p 6379 SET test_key "ready" >/dev/null 2>&1; then
-                echo "✅ Redis is fully ready and accepting commands!"
-                redis-cli -h redis -p 6379 DEL test_key >/dev/null 2>&1
-                break
-              else
-                echo "⚠️  Redis responding to PING but not ready for commands yet..."
-              fi
+          echo "⏳ Waiting for Redis to be ready on localhost:6379..."
+          for i in {1..30}; do
+            if redis-cli -h localhost -p 6379 ping >/dev/null 2>&1; then
+              echo "✅ Redis is ready!"
+              redis-cli -h localhost -p 6379 INFO server | head -5
+              break
             fi
-            
-            if [ $i -eq 60 ]; then
-              echo "❌ ERROR: Redis failed to become ready after 3 minutes"
-              echo "📋 Debugging info:"
-              getent hosts redis || echo "Cannot resolve redis hostname"
-              echo "Last redis-cli ping attempt:"
-              redis-cli -h redis -p 6379 ping || true
+            if [ $i -eq 30 ]; then
+              echo "❌ Redis failed to start"
+              redis-cli -h localhost -p 6379 ping || true
               exit 1
             fi
-            
-            sleep 3
+            echo "  Attempt $i/30..."
+            sleep 2
           done
-          echo "✅ Redis is READY!"
 
       - name: Typecheck
         run: pnpm typecheck
