@@ -78,6 +78,14 @@ jobs:
           echo "WORKSPACE DIR: $(pwd)"
           ls -la
 
+      - name: Install PostgreSQL and Redis clients
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client redis-tools
+          echo "✅ Installed pg_isready and redis-cli"
+          pg_isready --version
+          redis-cli --version
+
       - name: Wait for Postgres
         shell: bash
         run: |
@@ -86,17 +94,27 @@ jobs:
           
           echo "⏳ Waiting for Postgres to be ready..."
           for i in {1..60}; do
-            echo "  Attempt $i/60: Testing Postgres connection..."
-            if (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1; then
+            echo "  Attempt $i/60: Testing Postgres with pg_isready..."
+            
+            # Use pg_isready to properly check if Postgres is accepting queries
+            if pg_isready -h postgres -p 5432 -U postgres -d postgres -t 5 2>&1 | grep -q "accepting connections"; then
               echo "✅ Postgres is accepting connections!"
-              sleep 2
-              break
+              
+              # Double-check with a simple query
+              if PGPASSWORD=postgres psql -h postgres -U postgres -d postgres -c "SELECT 1" >/dev/null 2>&1; then
+                echo "✅ Postgres is fully ready and accepting queries!"
+                break
+              else
+                echo "⚠️  Postgres accepting connections but not ready for queries yet..."
+              fi
             fi
             
             if [ $i -eq 60 ]; then
               echo "❌ ERROR: Postgres failed to become ready after 3 minutes"
               echo "📋 Debugging info:"
               getent hosts postgres || echo "Cannot resolve postgres hostname"
+              echo "Last pg_isready output:"
+              pg_isready -h postgres -p 5432 -U postgres -d postgres -t 5 || true
               exit 1
             fi
             
@@ -112,17 +130,28 @@ jobs:
           
           echo "⏳ Waiting for Redis to be ready..."
           for i in {1..60}; do
-            echo "  Attempt $i/60: Testing Redis connection..."
-            if (echo > /dev/tcp/redis/6379) >/dev/null 2>&1; then
-              echo "✅ Redis is accepting connections!"
-              sleep 2
-              break
+            echo "  Attempt $i/60: Testing Redis with redis-cli..."
+            
+            # Use redis-cli to properly check if Redis is responding
+            if redis-cli -h redis -p 6379 ping 2>&1 | grep -q "PONG"; then
+              echo "✅ Redis is responding to PING!"
+              
+              # Additional check: try to set and get a test key
+              if redis-cli -h redis -p 6379 SET test_key "ready" >/dev/null 2>&1; then
+                echo "✅ Redis is fully ready and accepting commands!"
+                redis-cli -h redis -p 6379 DEL test_key >/dev/null 2>&1
+                break
+              else
+                echo "⚠️  Redis responding to PING but not ready for commands yet..."
+              fi
             fi
             
             if [ $i -eq 60 ]; then
               echo "❌ ERROR: Redis failed to become ready after 3 minutes"
               echo "📋 Debugging info:"
               getent hosts redis || echo "Cannot resolve redis hostname"
+              echo "Last redis-cli ping attempt:"
+              redis-cli -h redis -p 6379 ping || true
               exit 1
             fi
             
