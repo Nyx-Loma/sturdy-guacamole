@@ -90,6 +90,8 @@ afterAll(() => {
 describe('container composition', () => {
   it('uses in-memory adapters by default', async () => {
     process.env.STORAGE_DRIVER = 'memory';
+    delete process.env.REDIS_URL; // Ensure Redis is not used in memory mode
+    delete process.env.POSTGRES_URL; // Ensure Postgres is not used in memory mode
     const { loadConfig, resetConfigForTests, createContainer } = await loadModules();
     resetConfigForTests();
     const config = loadConfig();
