@@ -52,9 +52,7 @@ jobs:
       KMS_MODE: inmemory
       STORAGE_DRIVER: postgres
       DATABASE_URL: postgres://sanctum:sanctum@localhost:5432/sanctum
-      REDIS_URL: redis://localhost:6379
-      # Use service hostname for Redis in integration
-      REDIS_URL: redis://redis:6379
+      # REDIS_URL not required for lint
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
