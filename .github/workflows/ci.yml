@@ -2,6 +2,86 @@ name: CI
 
 on:
   push:
+    branches:
+      - staging/**
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: messaging
+          POSTGRES_USER: messaging
+          POSTGRES_PASSWORD: messaging
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U messaging -d messaging" \
+          --health-interval 5s \
+          --health-timeout 5s \
+          --health-retries 20
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Wait for Postgres
+        env:
+          PGPASSWORD: messaging
+        run: |
+          for i in {1..60}; do
+            if pg_isready -h 127.0.0.1 -p 5433 -U messaging -d messaging; then
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Seed messaging schema
+        env:
+          PGPASSWORD: messaging
+        run: |
+          psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type Check
+        run: pnpm exec tsc --noEmit
+
+      - name: Tests
+        env:
+          DATABASE_URL: postgres://messaging:messaging@127.0.0.1:5433/messaging
+        run: pnpm test --run --coverage
+
+name: CI
+
+on:
+  push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
