@@ -51,6 +51,23 @@ services:
       - .:/workspace:delegated
       - auth-service-node-modules:/workspace/node_modules
 
+  messaging-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: messaging
+      POSTGRES_USER: messaging
+      POSTGRES_PASSWORD: messaging
+    ports:
+      - '5433:5432'
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-d', 'messaging', '-U', 'messaging']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - messaging-db-data:/var/lib/postgresql/data
+
 volumes:
   auth-db-data:
   auth-service-node-modules:
+  messaging-db-data:

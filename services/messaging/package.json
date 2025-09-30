@@ -1,0 +1,47 @@
+{
+  "name": "@sanctum/messaging",
+  "version": "0.1.0",
+  "description": "Sanctum messaging service with E2EE support",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/index.ts",
+    "test": "pnpm vitest run --config ../../vitest.config.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "clean": "rimraf dist coverage .vite .eslintcache"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/websocket": "^11.0.1",
+    "@sanctum/config": "workspace:*",
+    "@sanctum/crypto": "workspace:*",
+    "@sanctum/transport": "workspace:*",
+    "fastify": "^5.6.1",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1",
+    "pino": "^9.12.0",
+    "pino-pretty": "^13.1.1",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "^9.1.1",
+    "@stryker-mutator/vitest-runner": "^9.1.1",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "@types/uuid": "^10.0.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "fast-check": "^4.3.0",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

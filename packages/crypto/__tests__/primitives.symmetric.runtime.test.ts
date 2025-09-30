@@ -1,18 +1,23 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { __setSodiumForTests } from '../src/sodium/init';
 
-vi.mock('../src/sodium/init', async () => ({
-  ensureSodium: vi.fn()
-}));
-
-const sodiumModule = await import('../src/sodium/init');
-const { ensureSodium } = sodiumModule;
 const sodiumMock = {
   crypto_aead_xchacha20poly1305_ietf_encrypt: vi.fn(),
   crypto_aead_xchacha20poly1305_ietf_decrypt: vi.fn(),
-  randombytes_buf: vi.fn((len: number) => new Uint8Array(len).fill(9))
-};
+  randombytes_buf: vi.fn((len: number) => new Uint8Array(len).fill(9)),
+  crypto_generichash: vi.fn((len: number) => new Uint8Array(len).fill(1)),
+  crypto_kdf_derive_from_key: vi.fn(() => new Uint8Array(32).fill(2))
+} as const;
 
-vi.mocked(ensureSodium).mockResolvedValue(sodiumMock as any);
+beforeEach(() => {
+  __setSodiumForTests(sodiumMock as any);
+});
+
+afterEach(() => {
+  __setSodiumForTests(undefined);
+  vi.clearAllMocks();
+});
+
 const { encrypt, decrypt, randomNonce, deriveSymmetricKey } = await import('../src/primitives/symmetric');
 
 const key = (new Uint8Array(32).fill(7) as any);

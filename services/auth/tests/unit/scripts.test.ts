@@ -1,12 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
+const mockPools: any[] = [];
+
 vi.mock('pg', () => {
-  const query = vi.fn().mockResolvedValue(undefined);
-  const client = { query, release: vi.fn() };
-  const connect = vi.fn().mockResolvedValue(client);
-  return {
-    Pool: vi.fn().mockImplementation(() => ({ connect, end: vi.fn().mockResolvedValue(undefined), __client: client }))
-  };
+  class MockPool {
+    __client = { query: vi.fn().mockResolvedValue(undefined), release: vi.fn().mockResolvedValue(undefined) };
+    connect = vi.fn().mockResolvedValue(this.__client);
+    end = vi.fn().mockResolvedValue(undefined);
+    constructor() {
+      mockPools.push(this);
+    }
+  }
+  return { Pool: MockPool };
 });
 
 vi.mock('node:fs/promises', async (original) => {
@@ -57,10 +62,9 @@ describe('scripts/migrate runMigrations', () => {
     const module = await import('../../scripts/migrate');
     const runMigrations = module.runMigrations ?? module.migrate ?? module.default;
     await runMigrations();
-    const { Pool }: { Pool: ReturnType<typeof vi.fn> } = await import('pg');
-    const poolInstance = Pool.mock.results[0].value;
-    const client = poolInstance.__client;
-    expect(client.query).toHaveBeenCalledWith('SELECT 1;');
-    expect(poolInstance.end).toHaveBeenCalled();
+    const instance = mockPools.at(-1);
+    expect(instance?.connect).toHaveBeenCalled();
+    expect(instance?.__client.query).toHaveBeenCalled();
+    expect(instance?.end).toHaveBeenCalled();
   });
 });

@@ -1,9 +1,10 @@
 import Fastify from 'fastify';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { registerRateLimiter } from '../../app/rateLimiter';
 
 describe('directory rate limiter', () => {
   it('allows under limit, blocks over limit, and resets after window', async () => {
+    vi.useFakeTimers();
     const app = Fastify();
     registerRateLimiter(app, { max: 2, intervalMs: 50 });
     app.get('/ping', async () => ({ ok: true }));
@@ -16,9 +17,10 @@ describe('directory rate limiter', () => {
     expect(b.statusCode).toBe(200);
     expect(c.statusCode).toBe(429);
 
-    await new Promise((r) => setTimeout(r, 60));
+    await vi.advanceTimersByTimeAsync(60);
     const d = await app.inject({ method: 'GET', url: '/ping', remoteAddress: '1.1.1.1' });
     expect(d.statusCode).toBe(200);
+    vi.useRealTimers();
   });
 
   it('respects allow list', async () => {

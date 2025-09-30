@@ -3,8 +3,8 @@ import sodium from 'libsodium-wrappers';
 
 process.env.STORAGE_DRIVER ??= 'memory';
 process.env.RATE_LIMIT_DISABLED ??= 'true';
+process.env.DATABASE_URL ??= 'postgresql://messaging:messaging@localhost:5433/messaging';
 
-const BASE_DATE = new Date('2025-01-01T00:00:00.000Z');
 const RNG_MODULUS = 2147483647;
 const RNG_MULTIPLIER = 16807;
 
@@ -22,13 +22,10 @@ beforeAll(async () => {
 
 beforeEach(() => {
   const randomFn = createSeededRandom();
-  vi.stubGlobal('Math', { ...Math, random: randomFn });
-  vi.useFakeTimers();
-  vi.setSystemTime(BASE_DATE);
+  vi.spyOn(Math, 'random').mockImplementation(randomFn);
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
