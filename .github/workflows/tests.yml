@@ -176,6 +176,12 @@ jobs:
             sleep 2
           done
 
+      - name: Seed messaging schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h postgres -p 5432 -U postgres -d postgres -f services/messaging/schema.sql
+
       - name: Wait for Redis
         shell: bash
         run: |
