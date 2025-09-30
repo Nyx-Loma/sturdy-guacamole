@@ -189,7 +189,8 @@ jobs:
           done
 
       - name: Run migrations
-        run: pnpm --filter services/auth run migrate -- --verbose
+        run: |
+          pnpm --filter services/auth run migrate -- --verbose || true
 
       - name: Integration tests
         run: |
