@@ -85,6 +85,140 @@ jobs:
           DATABASE_URL: postgres://messaging:messaging@127.0.0.1:5433/messaging
         run: pnpm test --run --coverage
 
+  coverage-gate:
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests to produce coverage
+        run: pnpm test --run --coverage
+
+      - name: Enforce per-package coverage thresholds
+        run: node scripts/check-coverage.mjs
+
+  migrations-verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: messaging
+          POSTGRES_USER: messaging
+          POSTGRES_PASSWORD: messaging
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U messaging -d messaging" \
+          --health-interval 5s \
+          --health-timeout 5s \
+          --health-retries 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for Postgres
+        env:
+          PGPASSWORD: messaging
+        run: |
+          for i in {1..60}; do
+            if pg_isready -h 127.0.0.1 -p 5433 -U messaging -d messaging; then
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Apply schema (expand)
+        env:
+          PGPASSWORD: messaging
+        run: psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
+
+      - name: Smoke check tables exist
+        env:
+          PGPASSWORD: messaging
+        run: |
+          COUNT=$(psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -t -c "select count(*) from information_schema.tables where table_schema='messaging';")
+          echo "tables=$COUNT"
+          test ${COUNT:-0} -gt 0
+
+      - name: Contract (drop schema)
+        env:
+          PGPASSWORD: messaging
+        run: psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -c "drop schema if exists messaging cascade;"
+
+      - name: Re-apply schema (expand again)
+        env:
+          PGPASSWORD: messaging
+        run: psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
+
+      - name: Final smoke
+        env:
+          PGPASSWORD: messaging
+        run: |
+          COUNT=$(psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -t -c "select count(*) from information_schema.tables where table_schema='messaging';")
+          echo "tables=$COUNT"
+          test ${COUNT:-0} -gt 0
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . --no-git -v --redact
+
+  dependency-review:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/dependency-review-action@v4
+
+  dockerfile-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hadolint Dockerfiles
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: |
+            services/auth/Dockerfile
+
+  trivy-sarif:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy FS scan
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
 name: CI
 
 on:
