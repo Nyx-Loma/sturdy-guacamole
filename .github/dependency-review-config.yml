@@ -1,0 +1,19 @@
+version: 2
+allow:
+  # Allow dev-only dependencies and test tools to pass dependency review
+  development: true
+  scopes:
+    - devDependencies
+    - test
+    - tests
+deny:
+  # Block known bad licenses if encountered
+  licenses:
+    - GPL-1.0
+    - GPL-2.0
+    - AGPL-1.0
+    - AGPL-3.0
+    - LGPL-2.0
+  # Example CVE denylist (can be refined)
+  advisories: []
+
