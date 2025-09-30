@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll, vi } from 'vitest';
 import { getPublicKey, sign, utils as edUtils, hashes } from '@noble/ed25519';
 import { createHash, randomBytes } from 'node:crypto';
 import { createDeviceAssertionService } from '../../domain/services/deviceAssertion';
@@ -58,6 +58,7 @@ describe('device assertion service', () => {
   });
 
   it('rejects expired nonce', async () => {
+    vi.useFakeTimers();
     const store = createMemoryNonceStore();
     const service = createDeviceAssertionService(store, 5);
     const privateKey = Uint8Array.from(randomBytes(32));
@@ -66,9 +67,10 @@ describe('device assertion service', () => {
     const nonce = await service.generateNonce(deviceId);
     const signature = await sign(Buffer.from(nonce), privateKey);
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await vi.advanceTimersByTimeAsync(10);
     const ok = await service.verify(publicKey, nonce, signature, deviceId);
     expect(ok).toBe(false);
+    vi.useRealTimers();
   });
 
   it('rejects nonce replay across devices', async () => {

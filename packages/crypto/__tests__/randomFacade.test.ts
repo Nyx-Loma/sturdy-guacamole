@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import * as RandomFacade from '../src/random';
 import * as Envelope from '../src/envelope';
 import { brandSymmetricKey } from '../src/types';
@@ -9,14 +9,22 @@ vi.mock('../src/sodium/init', () => ({
   })
 }));
 
-vi.mock('../src/sessions/envelope', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
+vi.mock('../src/sessions/envelope', () => {
+  const mockEnvelope = {
     seal: vi.fn().mockResolvedValue({ type: 'sealed' }),
     open: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
     randomEnvelopeNonce: vi.fn().mockResolvedValue(new Uint8Array([9, 9, 9]))
   };
+  return {
+    ...mockEnvelope
+  };
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.spyOn(Envelope, 'seal').mockResolvedValue({ type: 'sealed' } as any);
+  vi.spyOn(Envelope, 'open').mockResolvedValue(new Uint8Array([1, 2, 3]));
+  vi.spyOn(Envelope, 'randomNonce').mockResolvedValue(new Uint8Array([9, 9, 9]));
 });
 
 describe('crypto random facade', () => {
@@ -29,6 +37,10 @@ describe('crypto random facade', () => {
 describe('crypto envelope facade', () => {
   const key = brandSymmetricKey(new Uint8Array(32));
   const header = { publicKey: new Uint8Array([1]), counter: 1, previousCounter: 0 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('re-exports seal', async () => {
     const result = await Envelope.seal(key, new Uint8Array([1, 2]), header);

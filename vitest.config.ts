@@ -52,7 +52,7 @@ const projects = [
         'services/**/tests/unit/**/*.test.ts',
         'apps/server/__tests__/**/*.test.ts'
       ],
-      setupFiles: ['packages/crypto/vitest.setup.ts']
+      setupFiles: ['vitest.global.setup.ts', 'packages/crypto/vitest.setup.ts']
     }
   }),
   defineProject({
@@ -64,16 +64,19 @@ const projects = [
         'services/**/tests/integration/**/*.test.ts',
         'services/**/tests/e2e/**/*.test.ts'
       ],
-      setupFiles: ['packages/crypto/vitest.setup.ts'],
+      setupFiles: ['vitest.global.setup.ts', 'packages/crypto/vitest.setup.ts'],
       retry: 2,
-      retryDelay: 200
+      retryDelay: 200,
+      sequence: {
+        mode: 'serial'
+      }
     }
   }),
   defineProject({
     test: {
       name: 'security',
       include: ['services/**/src/tests/security/**/*.test.ts', 'services/**/tests/security/**/*.test.ts'],
-      setupFiles: ['packages/crypto/vitest.setup.ts']
+      setupFiles: ['vitest.global.setup.ts', 'packages/crypto/vitest.setup.ts']
     }
   })
 ];
