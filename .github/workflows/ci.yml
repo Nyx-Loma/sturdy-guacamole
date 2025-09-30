@@ -3,14 +3,21 @@ name: CI
 on:
   push:
     branches:
+      - main
       - staging/**
   pull_request:
     branches:
       - main
+      - staging/**
+  workflow_dispatch:
 
 jobs:
   build-test:
     runs-on: ubuntu-latest
+
+    concurrency:
+      group: ci-${{ github.ref }}
+      cancel-in-progress: true
 
     services:
       postgres:
