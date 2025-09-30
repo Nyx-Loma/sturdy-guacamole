@@ -29,10 +29,10 @@ jobs:
         ports:
           - 5433:5432
         options: >-
-          --health-cmd "pg_isready -U messaging -d messaging" \
-          --health-interval 5s \
-          --health-timeout 5s \
-          --health-retries 20
+          --health-cmd="pg_isready -U messaging -d messaging"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
 
       redis:
         image: redis:7-alpine
@@ -139,10 +139,10 @@ jobs:
         ports:
           - 5433:5432
         options: >-
-          --health-cmd "pg_isready -U messaging -d messaging" \
-          --health-interval 5s \
-          --health-timeout 5s \
-          --health-retries 20
+          --health-cmd="pg_isready -U messaging -d messaging"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
