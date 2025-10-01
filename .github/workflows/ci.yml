@@ -79,7 +79,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build packages
-        run: pnpm run build --filter @sanctum/config --filter @sanctum/crypto --filter @sanctum/transport
+        run: |
+          pnpm --filter @sanctum/config build
+          pnpm --filter @sanctum/crypto build
+          pnpm --filter @sanctum/transport build
 
       - name: Lint
         run: pnpm lint
