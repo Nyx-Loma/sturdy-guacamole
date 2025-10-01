@@ -183,7 +183,12 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
+          echo "Seeding messaging schema..."
           psql -h postgres -p 5432 -U postgres -d postgres -f services/messaging/schema.sql
+          echo "Verifying messaging schema..."
+          COUNT=$(psql -h postgres -p 5432 -U postgres -d postgres -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='messaging';")
+          echo "Messaging tables: $COUNT"
+          test ${COUNT:-0} -gt 0
 
       - name: Wait for Redis
         shell: bash
