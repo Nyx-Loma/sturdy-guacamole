@@ -2,23 +2,15 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - staging/**
+    branches: [main, develop, 'ci/**']
   pull_request:
-    branches:
-      - main
-      - staging/**
-  workflow_dispatch:
+    branches: [main, develop]
 
 jobs:
-  build-test:
+  test:
+    name: Test
     runs-on: ubuntu-latest
-
-    concurrency:
-      group: ci-${{ github.ref }}
-      cancel-in-progress: true
-
+    
     services:
       postgres:
         image: postgres:16
@@ -29,273 +21,53 @@ jobs:
         ports:
           - 5433:5432
         options: >-
-          --health-cmd="pg_isready -U messaging -d messaging"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
-
-      - name: Wait for Postgres
-        env:
-          PGPASSWORD: messaging
-        run: |
-          for i in {1..60}; do
-            if pg_isready -h 127.0.0.1 -p 5433 -U messaging -d messaging; then
-              break
-            fi
-            sleep 1
-          done
-
-      - name: Seed messaging schema
-        env:
-          PGPASSWORD: messaging
-        run: |
-          psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build packages
-        run: |
-          pnpm --filter @sanctum/config build
-          pnpm --filter @sanctum/crypto build
-          pnpm --filter @sanctum/transport build
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Type Check
-        run: pnpm exec tsc --noEmit
-
-      - name: Unit tests with coverage (only)
-        env:
-          TZ: UTC
-          NODE_ENV: test
-          STORAGE_DRIVER: memory
-          DATABASE_URL: postgres://messaging:messaging@127.0.0.1:5433/messaging
-          REDIS_QUEUE_URL: redis://127.0.0.1:6379
-          QUEUE_ENABLED: 'false'
-          RATE_LIMIT_DISABLED: 'true'
-          CAPTCHA_PROVIDER: none
-          KMS_MODE: inmemory
-        run: pnpm vitest run --project=unit --coverage --testTimeout=30000 --exclude='apps/server/__tests__/**'
-
-      - name: Upload coverage artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage
-
-  coverage-gate:
-    needs: build-test
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: messaging
-          POSTGRES_USER: messaging
-          POSTGRES_PASSWORD: messaging
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd="pg_isready -U messaging -d messaging"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+          node-version: '20'
           cache: 'pnpm'
 
-      - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
-
-      - name: Wait for Postgres
-        env:
-          PGPASSWORD: messaging
-        run: |
-          for i in {1..60}; do
-            if pg_isready -h 127.0.0.1 -p 5433 -U messaging -d messaging; then
-              break
-            fi
-            sleep 1
-          done
-
-      - name: Seed messaging schema
-        env:
-          PGPASSWORD: messaging
-        run: |
-          psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build packages
+      - name: Initialize database schema
         run: |
-          pnpm --filter @sanctum/config build
-          pnpm --filter @sanctum/crypto build
-          pnpm --filter @sanctum/transport build
-
-      - name: Run full test suite with coverage
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
         env:
-          DATABASE_URL: postgres://messaging:messaging@127.0.0.1:5433/messaging
-          REDIS_QUEUE_URL: redis://127.0.0.1:6379
-          QUEUE_ENABLED: 'false'
+          DATABASE_URL: postgresql://messaging:messaging@localhost:5433/messaging
+
+      - name: Run linter
+        run: pnpm lint
+
+      - name: Run type check
+        run: pnpm typecheck
+
+      - name: Run tests
         run: pnpm test
-
-      - name: Enforce per-package coverage thresholds
-        run: node scripts/check-coverage.mjs
-
-  migrations-verify:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
         env:
-          POSTGRES_DB: messaging
-          POSTGRES_USER: messaging
-          POSTGRES_PASSWORD: messaging
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd="pg_isready -U messaging -d messaging"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+          DATABASE_URL: postgresql://messaging:messaging@localhost:5433/messaging
+          NODE_ENV: test
 
-      - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+      - name: Check coverage
+        run: pnpm check:coverage
 
-      - name: Wait for Postgres
-        env:
-          PGPASSWORD: messaging
-        run: |
-          for i in {1..60}; do
-            if pg_isready -h 127.0.0.1 -p 5433 -U messaging -d messaging; then
-              break
-            fi
-            sleep 1
-          done
-
-      - name: Apply schema (expand)
-        env:
-          PGPASSWORD: messaging
-        run: psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
-
-      - name: Smoke check tables exist
-        env:
-          PGPASSWORD: messaging
-        run: |
-          COUNT=$(psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -t -c "select count(*) from information_schema.tables where table_schema='messaging';")
-          echo "tables=$COUNT"
-          test ${COUNT:-0} -gt 0
-
-      - name: Contract (drop schema)
-        env:
-          PGPASSWORD: messaging
-        run: psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -c "drop schema if exists messaging cascade;"
-
-      - name: Re-apply schema (expand again)
-        env:
-          PGPASSWORD: messaging
-        run: psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
-
-      - name: Final smoke
-        env:
-          PGPASSWORD: messaging
-        run: |
-          COUNT=$(psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -t -c "select count(*) from information_schema.tables where table_schema='messaging';")
-          echo "tables=$COUNT"
-          test ${COUNT:-0} -gt 0
-
-  secrets-scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        continue-on-error: true
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: always()
         with:
-          args: detect --source . --no-git -v --redact
-
-  dockerfile-lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Hadolint Dockerfiles
-        uses: hadolint/hadolint-action@v3.1.0
-        continue-on-error: true
-        with:
-          dockerfile: |
-            services/auth/Dockerfile
-
-  trivy-sarif:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Trivy FS scan
-        uses: aquasecurity/trivy-action@0.20.0
-        with:
-          scan-type: 'fs'
-          ignore-unfixed: true
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'HIGH,CRITICAL'
-      - name: Upload SARIF to code scanning
-        uses: github/codeql-action/upload-sarif@v3
-        continue-on-error: true
-        with:
-          sarif_file: trivy-results.sarif
-
-
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}

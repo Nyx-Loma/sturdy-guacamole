@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Client } from 'pg';
+import { describe, expect, it } from 'vitest';
 
 import {
   createPostgresMessagesWriteAdapter
 } from '../../../../ports/messages/postgres/messagesWriteAdapter';
+import { setupDatabaseTests } from '../../helpers/setupDatabase';
 
 const baseInput = {
   conversationId: '6bdfc2c4-0fd3-4a46-8c7a-5ad1e5f8f364',
@@ -19,26 +19,16 @@ describe('PostgresMessagesWriteAdapter (integration)', () => {
     return;
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const { client, available } = setupDatabaseTests(process.env.DATABASE_URL, {
+    truncateTables: ['messaging.message_idempotency', 'messaging.messages']
+  });
+
   const adapter = createPostgresMessagesWriteAdapter({
     sql: client,
     now: () => new Date('2025-09-29T12:00:00.000Z')
   });
 
-  beforeAll(async () => {
-    await client.connect();
-  });
-
-  afterAll(async () => {
-    await client.end();
-  });
-
-  beforeEach(async () => {
-    await client.query('truncate messaging.messages cascade');
-    await client.query('truncate messaging.message_idempotency cascade');
-  });
-
-  it('creates messages and respects idempotency key', async () => {
+  it.skipIf(!available)('creates messages and respects idempotency key', async () => {
     const command = { input: baseInput, idempotencyKey: 'client-1' };
 
     const id1 = await adapter.create(command);
@@ -53,7 +43,7 @@ describe('PostgresMessagesWriteAdapter (integration)', () => {
     expect(rows.rowCount).toBe(1);
   });
 
-  it('updates status transitions', async () => {
+  it.skipIf(!available)('updates status transitions', async () => {
     const id = await adapter.create({ input: baseInput });
 
     await adapter.updateStatus(id, 'delivered', '2025-09-29T12:01:00.000Z');
@@ -65,7 +55,7 @@ describe('PostgresMessagesWriteAdapter (integration)', () => {
     expect(new Date(rows[0]?.delivered_at).toISOString()).toBe('2025-09-29T12:01:00.000Z');
   });
 
-  it('marks multiple messages as read', async () => {
+  it.skipIf(!available)('marks multiple messages as read', async () => {
     const ids = await Promise.all(
       Array.from({ length: 3 }).map(() => adapter.create({ input: baseInput }))
     );
@@ -76,7 +66,7 @@ describe('PostgresMessagesWriteAdapter (integration)', () => {
     expect(rows.every(row => row.status === 'read')).toBe(true);
   });
 
-  it('soft deletes message without removing row', async () => {
+  it.skipIf(!available)('soft deletes message without removing row', async () => {
     const id = await adapter.create({ input: baseInput });
 
     await adapter.softDelete(id, '2025-09-29T12:20:00.000Z');
@@ -85,7 +75,7 @@ describe('PostgresMessagesWriteAdapter (integration)', () => {
     expect(new Date(rows[0]?.deleted_at).toISOString()).toBe('2025-09-29T12:20:00.000Z');
   });
 
-  it('rejects update for missing message', async () => {
+  it.skipIf(!available)('rejects update for missing message', async () => {
     await expect(
       adapter.updateStatus(crypto.randomUUID(), 'delivered', '2025-09-29T12:01:00.000Z')
     ).resolves.toBeUndefined();

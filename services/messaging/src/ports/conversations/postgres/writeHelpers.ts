@@ -1,10 +1,7 @@
-import type {
-  ConversationSettings,
-  Participant
-} from '../../../domain/types/conversation.types';
 import type { Actor, IsoDateTime, Uuid } from '../../shared/types';
 import type { SqlClient } from '../../shared/sql';
 import type { ConversationsWritePort } from '../conversationsWritePort';
+import type { ConversationSettings, Participant } from '../../../domain/types/conversation.types';
 
 export type ParticipantChanges = Parameters<ConversationsWritePort['updateParticipants']>[1];
 export type CreateInput = Parameters<ConversationsWritePort['create']>[0];
@@ -135,7 +132,7 @@ const insertNewParticipants = (
   timestamp: IsoDateTime
 ) =>
   Promise.all(
-    additions.map(addition =>
+    (additions ?? []).map(addition =>
       sql.query(
         `
         insert into messaging.conversation_participants (

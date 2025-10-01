@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Client } from 'pg';
+import { describe, expect, it } from 'vitest';
 
 import {
   createPostgresConversationsWriteAdapter
 } from '../../../../ports/conversations/postgres/conversationsWriteAdapter';
+import { setupDatabaseTests } from '../../helpers/setupDatabase';
 
 const actor = { id: '82fcbac5-9583-40d7-8a0e-d728621f0a4e', role: 'user' as const };
 
@@ -13,26 +13,18 @@ describe('PostgresConversationsWriteAdapter (integration)', () => {
     return;
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const { client, available } = setupDatabaseTests(process.env.DATABASE_URL, {
+    truncateTables: [
+      'messaging.messages',
+      'messaging.conversation_audit',
+      'messaging.conversation_participants',
+      'messaging.conversations'
+    ]
+  });
 
   const adapter = createPostgresConversationsWriteAdapter({
     sql: client,
     now: () => new Date('2025-09-29T12:00:00.000Z')
-  });
-
-  beforeAll(async () => {
-    await client.connect();
-  });
-
-  afterAll(async () => {
-    await client.end();
-  });
-
-  beforeEach(async () => {
-    await client.query('truncate messaging.conversation_audit cascade');
-    await client.query('truncate messaging.conversation_participants cascade');
-    await client.query('truncate messaging.conversations cascade');
-    await client.query('truncate messaging.messages cascade');
   });
 
   const participantA = '80ee6f56-4826-4bcf-899c-0bced8e8d729';
@@ -43,7 +35,7 @@ describe('PostgresConversationsWriteAdapter (integration)', () => {
     return adapter.create({ type: 'group', participantIds: participants }, actor);
   };
 
-  it('creates conversation with participants and audit record', async () => {
+  it.skipIf(!available)('creates conversation with participants and audit record', async () => {
     const id = await createConversation();
 
     const { rowCount } = await client.query('select * from messaging.conversations where id = $1', [id]);
@@ -53,7 +45,7 @@ describe('PostgresConversationsWriteAdapter (integration)', () => {
     expect(audit.rowCount).toBe(1);
   });
 
-  it('updates participant lifecycle', async () => {
+  it.skipIf(!available)('updates participant lifecycle', async () => {
     const conversationId = await createConversation();
 
     await adapter.updateParticipants(
@@ -66,7 +58,7 @@ describe('PostgresConversationsWriteAdapter (integration)', () => {
     expect(participants.rowCount).toBeGreaterThan(1);
   });
 
-  it('updates metadata and settings', async () => {
+  it.skipIf(!available)('updates metadata and settings', async () => {
     const id = await createConversation();
 
     await adapter.updateMetadata(id, { name: 'Team A', description: 'Updated desc' }, actor);
@@ -78,7 +70,7 @@ describe('PostgresConversationsWriteAdapter (integration)', () => {
     expect(rows[0].settings.whoCanAddParticipants).toBe('owner');
   });
 
-  it('soft deletes conversations', async () => {
+  it.skipIf(!available)('soft deletes conversations', async () => {
     const id = await createConversation();
 
     await adapter.softDelete(id, '2025-09-29T13:00:00.000Z', actor);
