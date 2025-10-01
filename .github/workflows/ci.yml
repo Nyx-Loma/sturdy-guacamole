@@ -132,20 +132,35 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Download coverage artifact
+        id: download-coverage
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
           name: coverage
           path: coverage
 
+      - name: Check if coverage exists
+        id: check-coverage
+        run: |
+          if [ -f "coverage/coverage-final.json" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Generate coverage if artifact missing
-        if: failure()
+        if: steps.check-coverage.outputs.exists == 'false'
         env:
           TZ: UTC
           NODE_ENV: test
           STORAGE_DRIVER: memory
+          DATABASE_URL: ''
+          REDIS_QUEUE_URL: ''
+          QUEUE_ENABLED: 'false'
           RATE_LIMIT_DISABLED: 'true'
-        run: pnpm vitest run --project=unit --coverage --testTimeout=30000
+          CAPTCHA_PROVIDER: none
+          KMS_MODE: inmemory
+        run: pnpm vitest run --project=unit --coverage --testTimeout=30000 --exclude='apps/server/__tests__/**'
 
       - name: Enforce per-package coverage thresholds
         run: node scripts/check-coverage.mjs
