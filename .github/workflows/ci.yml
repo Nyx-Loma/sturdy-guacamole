@@ -78,6 +78,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build packages
+        run: pnpm run build --filter @sanctum/config --filter @sanctum/crypto --filter @sanctum/transport
+
       - name: Lint
         run: pnpm lint
 
