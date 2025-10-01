@@ -135,6 +135,8 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
         options: >-
               --health-cmd="pg_isready -U postgres -d postgres"
               --health-interval=5s
@@ -142,6 +144,8 @@ jobs:
               --health-retries=20
       redis:
         image: redis:7-alpine
+        ports:
+          - 6379:6379
         options: >-
               --health-cmd="redis-cli ping || exit 1"
               --health-interval=5s
@@ -151,9 +155,9 @@ jobs:
       NODE_ENV: test
       TZ: UTC
       STORAGE_DRIVER: postgres
-      POSTGRES_URL: postgres://postgres:postgres@postgres:5432/postgres
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
-      REDIS_URL: redis://redis:6379
+      POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      REDIS_URL: redis://localhost:6379
       CAPTCHA_PROVIDER: none
       KMS_MODE: inmemory
       RATE_LIMIT_DISABLED: 'true'
@@ -177,7 +181,7 @@ jobs:
           PGPASSWORD: postgres
         run: |
           for i in {1..60}; do
-            if pg_isready -h postgres -p 5432 -U postgres -d postgres >/dev/null 2>&1; then
+            if pg_isready -h localhost -p 5432 -U postgres -d postgres >/dev/null 2>&1; then
               break
             fi
             sleep 2
@@ -188,9 +192,9 @@ jobs:
           PGPASSWORD: postgres
         run: |
           echo "Seeding messaging schema..."
-          psql -h postgres -p 5432 -U postgres -d postgres -f services/messaging/schema.sql
+          psql -h localhost -p 5432 -U postgres -d postgres -f services/messaging/schema.sql
           echo "Verifying messaging schema..."
-          COUNT=$(psql -h postgres -p 5432 -U postgres -d postgres -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='messaging';")
+          COUNT=$(psql -h localhost -p 5432 -U postgres -d postgres -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='messaging';")
           echo "Messaging tables: $COUNT"
           test ${COUNT:-0} -gt 0
 
@@ -198,7 +202,7 @@ jobs:
         shell: bash
         run: |
           for i in {1..60}; do
-            (echo > /dev/tcp/redis/6379) >/dev/null 2>&1 && break
+            (echo > /dev/tcp/localhost/6379) >/dev/null 2>&1 && break
             sleep 2
           done
 
