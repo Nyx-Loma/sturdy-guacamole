@@ -85,10 +85,15 @@ jobs:
       - name: Type Check
         run: pnpm exec tsc --noEmit
 
-      - name: Tests
+      - name: Unit tests with coverage (only)
         env:
-          DATABASE_URL: postgres://messaging:messaging@127.0.0.1:5433/messaging
-        run: pnpm test --run --coverage
+          TZ: UTC
+          NODE_ENV: test
+          STORAGE_DRIVER: memory
+          RATE_LIMIT_DISABLED: 'true'
+          CAPTCHA_PROVIDER: none
+          KMS_MODE: inmemory
+        run: pnpm vitest run --project=unit --coverage
 
       - name: Upload coverage artifact
         if: always()
