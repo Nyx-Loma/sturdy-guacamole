@@ -95,7 +95,7 @@ jobs:
           RATE_LIMIT_DISABLED: 'true'
           CAPTCHA_PROVIDER: none
           KMS_MODE: inmemory
-        run: pnpm vitest run --project=unit --coverage --testTimeout=30000 --no-threads
+        run: pnpm vitest run --project=unit --coverage --testTimeout=30000
 
       - name: Upload coverage artifact
         if: always()
