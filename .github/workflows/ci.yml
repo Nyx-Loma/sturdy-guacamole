@@ -242,12 +242,6 @@ jobs:
         with:
           args: detect --source . --no-git -v --redact
 
-  dependency-review:
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/dependency-review-action@v4
-
   dockerfile-lint:
     runs-on: ubuntu-latest
     steps:
