@@ -10,7 +10,12 @@ export interface DbHealthCheckResult {
  * Used to gracefully skip integration tests when DB is not running.
  */
 export const checkDatabaseHealth = async (connectionString: string): Promise<DbHealthCheckResult> => {
-  const client = new Client({ connectionString });
+  const client = new Client({ 
+    connectionString,
+    connectionTimeoutMillis: 5000, // 5 second timeout for CI
+    query_timeout: 5000,
+    application_name: 'integration-tests-health-check'
+  });
   
   try {
     await client.connect();
@@ -19,6 +24,13 @@ export const checkDatabaseHealth = async (connectionString: string): Promise<DbH
     return { available: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Log detailed error in CI for debugging
+    if (process.env.CI) {
+      console.error('Database health check failed:', errorMessage);
+      console.error('Connection string (redacted):', connectionString.replace(/:[^:@]+@/, ':***@'));
+    }
+    
     return { 
       available: false, 
       error: errorMessage 
