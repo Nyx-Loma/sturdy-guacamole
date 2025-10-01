@@ -167,18 +167,21 @@ jobs:
           version: 9
       - run: pnpm install --frozen-lockfile
 
-      - name: Wait for Postgres
-        shell: bash
-        run: |
-          for i in {1..60}; do
-            (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1 && break
-            sleep 2
-          done
-
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client
+
+      - name: Wait for Postgres
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for i in {1..60}; do
+            if pg_isready -h postgres -p 5432 -U postgres -d postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
 
       - name: Seed messaging schema
         env:
