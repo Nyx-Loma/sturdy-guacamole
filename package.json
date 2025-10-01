@@ -11,6 +11,7 @@
     "test": "vitest --run --coverage",
     "check:coverage": "node ./scripts/check-coverage.mjs",
     "migrate:auth": "pnpm --filter services/auth run migrate",
+    "db:setup:messaging": "./scripts/setup-messaging-db.sh",
     "prepare": "husky"
   },
   "devDependencies": {

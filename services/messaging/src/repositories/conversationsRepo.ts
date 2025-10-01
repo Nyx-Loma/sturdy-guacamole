@@ -175,3 +175,5 @@ export interface ConversationsRepository {
    */
   delete(conversationId: string): Promise<void>;
 }
+
+

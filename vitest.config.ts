@@ -4,6 +4,13 @@ import path from 'node:path';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
+const alias = {
+  '@sanctum/config': path.resolve(rootDir, 'packages/config/src/index.ts'),
+  '@sanctum/transport': path.resolve(rootDir, 'packages/transport/src/index.ts'),
+  '@sanctum/crypto/backup/derive': path.resolve(rootDir, 'packages/crypto/src/backup/derive.ts'),
+  '@sanctum/crypto': path.resolve(rootDir, 'packages/crypto/src/index.ts')
+} as const;
+
 const coverageThresholds = {
   provider: 'v8',
   reportsDirectory: './coverage',
@@ -44,6 +51,7 @@ const coverageThresholds = {
 
 const projects = [
   defineProject({
+    resolve: { alias },
     test: {
       name: 'unit',
       include: [
@@ -56,6 +64,7 @@ const projects = [
     }
   }),
   defineProject({
+    resolve: { alias },
     test: {
       name: 'integration',
       include: [
@@ -73,6 +82,7 @@ const projects = [
     }
   }),
   defineProject({
+    resolve: { alias },
     test: {
       name: 'security',
       include: ['services/**/src/tests/security/**/*.test.ts', 'services/**/tests/security/**/*.test.ts'],
@@ -92,11 +102,7 @@ export default defineConfig({
     include: ['services/**/src/tests/unit/**/*.test.ts', 'services/**/tests/unit/**/*.test.ts', 'packages/**/__tests__/**/*.test.ts', 'apps/server/__tests__/**/*.test.ts']
   },
   resolve: {
-    alias: {
-      '@sanctum/config': path.resolve(rootDir, 'packages/config/src/index.ts'),
-      '@sanctum/transport': path.resolve(rootDir, 'packages/transport/src/index.ts'),
-      '@sanctum/crypto': path.resolve(rootDir, 'packages/crypto/src/index.ts')
-    }
+    alias
   }
 });
 

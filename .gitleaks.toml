@@ -1,0 +1,9 @@
+title = "Sanctum Gitleaks Baseline"
+
+[allowlist]
+description = "Allow known test strings and fixtures"
+regexes = [
+  "test-secret-min-32-chars-long-for-security",
+  "^dummy_[A-Za-z0-9]{10,}$"
+]
+

@@ -1,5 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Client } from 'pg';
+import { describe, expect, it } from 'vitest';
 
 import {
   createPostgresMessagesReadAdapter
@@ -7,6 +6,7 @@ import {
 import {
   createPostgresMessagesWriteAdapter
 } from '../../../../ports/messages/postgres/messagesWriteAdapter';
+import { setupDatabaseTests } from '../../helpers/setupDatabase';
 
 const baseInput = {
   conversationId: '6bdfc2c4-0fd3-4a46-8c7a-5ad1e5f8f364',
@@ -21,24 +21,14 @@ describe('PostgresMessagesReadAdapter (integration)', () => {
     return;
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const { client, available } = setupDatabaseTests(process.env.DATABASE_URL, {
+    truncateTables: ['messaging.message_idempotency', 'messaging.messages']
+  });
+
   const now = () => new Date('2025-09-29T12:00:00.000Z');
 
   const write = createPostgresMessagesWriteAdapter({ sql: client, now });
   const read = createPostgresMessagesReadAdapter({ sql: client });
-
-  beforeAll(async () => {
-    await client.connect();
-  });
-
-  afterAll(async () => {
-    await client.end();
-  });
-
-  beforeEach(async () => {
-    await client.query('truncate messaging.messages cascade');
-    await client.query('truncate messaging.message_idempotency cascade');
-  });
 
   const seedMessages = async (count: number) => {
     const ids: string[] = [];
@@ -56,20 +46,20 @@ describe('PostgresMessagesReadAdapter (integration)', () => {
     return ids;
   };
 
-  it('finds messages by id', async () => {
+  it.skipIf(!available)('finds messages by id', async () => {
     const [id] = await seedMessages(1);
     const message = await read.findById(id);
     expect(message?.id).toBe(id);
   });
 
-  it('lists messages by filters', async () => {
+  it.skipIf(!available)('lists messages by filters', async () => {
     await seedMessages(3);
 
     const messages = await read.list({ conversationId: baseInput.conversationId, senderId: baseInput.senderId });
     expect(messages.every(message => message.senderId === baseInput.senderId)).toBe(true);
   });
 
-  it('supports includeDeleted flag', async () => {
+  it.skipIf(!available)('supports includeDeleted flag', async () => {
     await seedMessages(1);
     const [id] = await seedMessages(1);
     await client.query('update messaging.messages set deleted_at = $2 where id=$1', [id, '2025-09-29T12:05:00.000Z']);
@@ -81,7 +71,7 @@ describe('PostgresMessagesReadAdapter (integration)', () => {
     expect(withDeleted.some(message => message.id === id)).toBe(true);
   });
 
-  it('paginates with cursor', async () => {
+  it.skipIf(!available)('paginates with cursor', async () => {
     await seedMessages(5);
 
     let cursor: string | undefined;
@@ -98,7 +88,7 @@ describe('PostgresMessagesReadAdapter (integration)', () => {
     expect(new Set(received).size).toBe(5);
   });
 
-  it('counts messages by filter', async () => {
+  it.skipIf(!available)('counts messages by filter', async () => {
     await seedMessages(4);
 
     const count = await read.count({ conversationId: baseInput.conversationId, senderId: baseInput.senderId });

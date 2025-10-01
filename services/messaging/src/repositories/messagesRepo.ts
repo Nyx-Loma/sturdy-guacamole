@@ -99,3 +99,5 @@ export interface MessagesRepository {
    */
   deleteByConversation(conversationId: string): Promise<void>;
 }
+
+

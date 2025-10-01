@@ -2,18 +2,17 @@ name: CI
 
 on:
   push:
-    branches:
-      - staging/**
+    branches: [main, develop, 'ci/**']
   pull_request:
-    branches:
-      - main
+    branches: [main, develop]
 
 jobs:
-  build-test:
+  test:
+    name: Test
     runs-on: ubuntu-latest
-
+    
     services:
-      postgres:
+      messaging-db:
         image: postgres:16
         env:
           POSTGRES_DB: messaging
@@ -22,226 +21,127 @@ jobs:
         ports:
           - 5433:5432
         options: >-
-          --health-cmd "pg_isready -U messaging -d messaging" \
-          --health-interval 5s \
-          --health-timeout 5s \
-          --health-retries 20
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
+          --health-cmd "pg_isready -U messaging -d messaging"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'pnpm'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Wait for Postgres
-        env:
-          PGPASSWORD: messaging
-        run: |
-          for i in {1..60}; do
-            if pg_isready -h 127.0.0.1 -p 5433 -U messaging -d messaging; then
-              break
-            fi
-            sleep 1
-          done
-
-      - name: Seed messaging schema
-        env:
-          PGPASSWORD: messaging
-        run: |
-          psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Type Check
-        run: pnpm exec tsc --noEmit
-
-      - name: Tests
-        env:
-          DATABASE_URL: postgres://messaging:messaging@127.0.0.1:5433/messaging
-        run: pnpm test --run --coverage
-
-name: CI
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d postgres"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=10
-          --health-start-period=30s
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping || exit 1"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=10
-          --health-start-period=20s
-
-    env:
-      CI: true
-      NODE_ENV: test
-      STORAGE_DRIVER: memory
-      # Use localhost with mapped ports (more reliable in GH Actions)
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
-      REDIS_URL: redis://localhost:6379
-      # JWT defaults to avoid schema failures
-      JWT_SECRET: test-secret-min-32-chars-long-for-security
-      JWT_ISSUER: sanctum-auth
-      JWT_AUDIENCE: sanctum-client
-      # Disable captcha/externals in CI
-      CAPTCHA_PROVIDER: none
-      KMS_MODE: inmemory
-      RATE_LIMIT_DISABLED: 'true'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Prepare pnpm via corepack
-        run: corepack prepare pnpm@9 --activate
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Print environment for debugging
+      # Phase 1: Debug Database Connectivity
+      - name: Debug - Verify PostgreSQL service
         run: |
-          node -v
-          pnpm -v
-          echo "WORKSPACE DIR: $(pwd)"
-          ls -la
-
-      - name: Install PostgreSQL and Redis clients
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client redis-tools
-          echo "✅ Installed pg_isready and redis-cli"
-          pg_isready --version
-          redis-cli --version
-
-      - name: Wait for Postgres
-        run: |
-          echo "⏳ Waiting for Postgres to be ready on localhost:5432..."
-          for i in {1..30}; do
-            if pg_isready -h localhost -p 5432 -U postgres -d postgres >/dev/null 2>&1; then
-              echo "✅ Postgres is ready!"
-              PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "SELECT version();"
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "❌ Postgres failed to start"
-              pg_isready -h localhost -p 5432 -U postgres -d postgres || true
-              exit 1
-            fi
-            echo "  Attempt $i/30..."
-            sleep 2
-          done
-
-      - name: Wait for Redis
-        run: |
-          echo "⏳ Waiting for Redis to be ready on localhost:6379..."
-          for i in {1..30}; do
-            if redis-cli -h localhost -p 6379 ping >/dev/null 2>&1; then
-              echo "✅ Redis is ready!"
-              redis-cli -h localhost -p 6379 INFO server | head -5
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "❌ Redis failed to start"
-              redis-cli -h localhost -p 6379 ping || true
-              exit 1
-            fi
-            echo "  Attempt $i/30..."
-            sleep 2
-          done
-
-      - name: Verify database connectivity
-        run: |
-          echo "🔍 Verifying database connectivity..."
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "
-            SELECT 
-              current_database() as database,
-              current_user as user,
-              version() as version;
-          "
-          echo "✅ Database is ready and accepting queries"
+          echo "🔍 Checking PostgreSQL connectivity..."
+          echo "Service name: messaging-db"
+          echo "Port mapping: 5433 (host) -> 5432 (container)"
+          echo "Database URL: postgresql://messaging:messaging@localhost:5433/messaging"
           
-          echo "🔍 Verifying Redis connectivity..."
-          redis-cli -h localhost -p 6379 SET test_ci_key "ci_works"
-          redis-cli -h localhost -p 6379 GET test_ci_key
-          redis-cli -h localhost -p 6379 DEL test_ci_key
-          echo "✅ Redis is ready and accepting commands"
+          # Check if port is open
+          echo "📡 Checking if port 5433 is open..."
+          nc -zv localhost 5433 || echo "❌ Port 5433 not accessible"
+          
+          # Try to connect with pg_isready
+          echo "🏥 Running pg_isready health check..."
+          pg_isready -h localhost -p 5433 -U messaging -d messaging -t 10 || echo "❌ pg_isready failed"
+          
+          # Try basic connection
+          echo "🔌 Testing basic connection..."
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c "SELECT version();" || echo "❌ Connection test failed"
 
-      - name: Typecheck
-        run: pnpm typecheck
+      # Phase 3: Verify Schema Application with Error Checking
+      - name: Initialize database schema
+        run: |
+          echo "📋 Applying database schema..."
+          
+          # Apply schema with error handling
+          if PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/schema.sql; then
+            echo "✅ Schema applied successfully"
+          else
+            echo "❌ Schema application failed!"
+            exit 1
+          fi
+          
+          # Verify tables were created
+          echo "🔍 Verifying tables exist..."
+          TABLE_COUNT=$(PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'messaging';")
+          
+          echo "Found $TABLE_COUNT tables in messaging schema"
+          
+          if [ "$TABLE_COUNT" -gt 0 ]; then
+            echo "✅ Database schema verified"
+            
+            # List the tables
+            echo "📊 Tables in messaging schema:"
+            PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'messaging' ORDER BY table_name;"
+          else
+            echo "❌ No tables found in messaging schema!"
+            exit 1
+          fi
+        env:
+          DATABASE_URL: postgresql://messaging:messaging@localhost:5433/messaging
 
-      - name: Lint
+      - name: Run linter
         run: pnpm lint
 
-      - name: Run tests with coverage
-        run: |
-          echo "🧪 Running tests with coverage..."
-          echo "Environment check:"
-          echo "  DATABASE_URL: ${DATABASE_URL}"
-          echo "  REDIS_URL: ${REDIS_URL}"
-          echo "  NODE_ENV: ${NODE_ENV}"
-          pnpm test
+      - name: Run type check
+        run: pnpm typecheck
 
-      - name: Enforce coverage thresholds
+      # Phase 4: Test Environment Validation
+      - name: Validate test environment
         run: |
-          echo "📊 Checking coverage thresholds..."
-          pnpm run check:coverage
+          echo "🧪 Validating test environment before running tests..."
+          
+          # Quick connection test
+          echo "Testing database connection..."
+          if PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c "SELECT 1;" > /dev/null 2>&1; then
+            echo "✅ Database connection successful"
+          else
+            echo "❌ Database connection failed - tests will be skipped"
+            echo "⚠️  This will cause coverage to drop below thresholds"
+            exit 1
+          fi
+          
+          # Verify tables still exist
+          TABLE_COUNT=$(PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'messaging';")
+          
+          if [ "$TABLE_COUNT" -gt 0 ]; then
+            echo "✅ Database schema intact ($TABLE_COUNT tables)"
+          else
+            echo "❌ Database schema missing!"
+            exit 1
+          fi
+          
+          echo "🎯 Environment ready for integration tests"
 
+      - name: Run tests
+        run: pnpm test
+        env:
+          DATABASE_URL: postgresql://messaging:messaging@localhost:5433/messaging
+          NODE_ENV: test
+          CI: true
+
+      - name: Check coverage
+        run: pnpm check:coverage
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
