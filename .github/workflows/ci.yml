@@ -114,6 +114,24 @@ jobs:
     needs: build-test
     runs-on: ubuntu-latest
     continue-on-error: true
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: messaging
+          POSTGRES_USER: messaging
+          POSTGRES_PASSWORD: messaging
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd="pg_isready -U messaging -d messaging"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -129,39 +147,43 @@ jobs:
           node-version: 20
           cache: 'pnpm'
 
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for Postgres
+        env:
+          PGPASSWORD: messaging
+        run: |
+          for i in {1..60}; do
+            if pg_isready -h 127.0.0.1 -p 5433 -U messaging -d messaging; then
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Seed messaging schema
+        env:
+          PGPASSWORD: messaging
+        run: |
+          psql -h 127.0.0.1 -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download coverage artifact
-        id: download-coverage
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: coverage
-          path: coverage
-
-      - name: Check if coverage exists
-        id: check-coverage
+      - name: Build packages
         run: |
-          if [ -f "coverage/coverage-final.json" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
+          pnpm --filter @sanctum/config build
+          pnpm --filter @sanctum/crypto build
+          pnpm --filter @sanctum/transport build
 
-      - name: Generate coverage if artifact missing
-        if: steps.check-coverage.outputs.exists == 'false'
+      - name: Run full test suite with coverage
         env:
-          TZ: UTC
-          NODE_ENV: test
-          STORAGE_DRIVER: memory
-          DATABASE_URL: ''
-          REDIS_QUEUE_URL: ''
+          DATABASE_URL: postgres://messaging:messaging@127.0.0.1:5433/messaging
+          REDIS_QUEUE_URL: redis://127.0.0.1:6379
           QUEUE_ENABLED: 'false'
-          RATE_LIMIT_DISABLED: 'true'
-          CAPTCHA_PROVIDER: none
-          KMS_MODE: inmemory
-        run: pnpm vitest run --project=unit --coverage --testTimeout=30000 --exclude='apps/server/__tests__/**'
+        run: pnpm test --coverage
 
       - name: Enforce per-package coverage thresholds
         run: node scripts/check-coverage.mjs
