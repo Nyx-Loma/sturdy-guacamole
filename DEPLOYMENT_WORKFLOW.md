@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the production-grade deployment pipeline for Sanctum Platform. The workflow ensures that **only battle-tested code reaches production** via automated gates and nightly smoke tests.
+This document describes the production-grade deployment pipeline for **Sanctum Chat** - an end-to-end encrypted messaging platform. The workflow ensures that **only battle-tested code reaches production** via automated gates and nightly smoke tests.
 
 ## Branch Strategy
 
@@ -40,10 +40,10 @@ git push origin feat/my-feature
 **Pull Request: `feat/my-feature` → `staging`**
 
 **Automated CI checks** (`.github/workflows/staging.yml`):
-- ✅ Run full test suite (unit + integration)
+- ✅ Run full test suite (unit + integration) with Redis + LocalStack S3
 - ✅ CodeQL security scan
 - ✅ Build all services (Auth, Directory, Messaging)
-- ✅ Coverage validation
+- ✅ Coverage validation (≥86% statements, ≥85% branches, ≥90% functions)
 
 **Merge requirements:**
 - All CI checks pass
@@ -61,17 +61,20 @@ git push origin staging
 **Scheduled: 2 AM UTC every night** (`.github/workflows/nightly-smoke.yml`)
 
 **Test Suite:**
-1. **Load Test (1 KiB payload)**
+1. **Load Test (1 KiB payload) - Storage Layer**
    - Target: 1000 RPS for 2 minutes
    - SLO: <2% error rate, p95 <1.5s
+   - Tests: Messaging API throughput with small payloads
 
-2. **Load Test (64 KiB payload)**
+2. **Load Test (64 KiB payload) - Storage Layer**
    - Target: 1000 RPS for 2 minutes
    - SLO: <2% error rate, p95 <1.5s
+   - Tests: E2EE message handling with realistic encrypted payloads
 
 3. **Soak Test (sustained load)**
    - Target: 500 RPS for 15 minutes
    - SLO: <2% error rate, p95 <1.5s, p99 <3s
+   - Tests: Memory stability, connection pooling, no resource leaks
 
 **Success criteria:**
 - ✅ All SLOs met
@@ -325,6 +328,7 @@ gh release create release/20250103-020000 \
 ---
 
 **Last Updated:** 2025-01-03  
-**Owner:** Platform Team  
+**Owner:** Sanctum Platform Team  
+**Project:** Sanctum Chat (E2EE Messaging)  
 **Status:** ✅ Production Ready
 
