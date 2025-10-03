@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/* eslint-env node */
+/* eslint-disable no-undef, @typescript-eslint/no-unused-vars */
 
 import WebSocket from 'ws';
 

@@ -25,6 +25,7 @@ export interface MessagingContainer {
 export const createMessagingContainer = async (
   app: FastifyInstance,
   config: MessagingConfig,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   hub?: any // WebSocketHub type from @sanctum/transport
 ): Promise<MessagingContainer> => {
   // Create shared clients

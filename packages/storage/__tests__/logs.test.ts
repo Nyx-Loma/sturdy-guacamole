@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createConsoleStorageLogger, isStorageLogger } from "../src/observability/logs";
 
 describe("observability logs", () => {
-  const original = { ...console } as unknown as Console;
+  void { ...console } as unknown as Console;
 
   beforeEach(() => {
     console.debug = vi.fn();

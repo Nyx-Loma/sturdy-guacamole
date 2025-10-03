@@ -5,7 +5,6 @@ import { registerErrorHandler } from './errorHandler';
 import { registerRateLimiter } from './rateLimiter';
 import { registerRoutes } from './routes';
 import { registerMetricsRoute, registerMetricsHooks } from './metrics';
-import { createLogger } from '../observability/logging';
 import fastifyWebsocket from '@fastify/websocket';
 import { WebSocketHub } from '@sanctum/transport';
 import { createMessagingContainer } from './serverContainer';
@@ -108,6 +107,7 @@ export const createServer = async (): Promise<MessagingServer> => {
   });
 
   app.get('/ws', { websocket: true }, (connection, request) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const socket = 'socket' in connection ? connection.socket : (connection as any);
     const clientId = request.id.toString();
     void hub

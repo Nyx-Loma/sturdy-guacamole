@@ -1,13 +1,47 @@
 #!/usr/bin/env sh
 set -e
 
+echo "🔒 Pre-commit hook: Running quality checks..."
+echo ""
+
 branch="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$branch" = "main" ]; then
   echo "❌ You are on main. Switch to staging before committing."
   exit 1
 fi
 
+echo "🧹 Cleaning build artifacts..."
 pnpm -r run clean
-pnpm lint
-pnpm exec tsc --project tsconfig.json --noEmit
-pnpm vitest --run --silent
+
+echo "🔍 Running ESLint (0 warnings allowed)..."
+if ! pnpm lint; then
+  echo ""
+  echo "❌ LINT FAILED - Fix all errors before committing!"
+  echo "   Tip: Run 'pnpm lint' to see errors"
+  echo "   DO NOT use --no-verify to bypass this check"
+  exit 1
+fi
+
+echo "✅ Lint passed!"
+echo ""
+
+echo "🔧 Running TypeScript compiler check..."
+if ! pnpm exec tsc --project tsconfig.json --noEmit; then
+  echo ""
+  echo "❌ TYPE CHECK FAILED - Fix all type errors before committing!"
+  exit 1
+fi
+
+echo "✅ Type check passed!"
+echo ""
+
+echo "🧪 Running tests..."
+if ! pnpm vitest --run --silent; then
+  echo ""
+  echo "❌ TESTS FAILED - Fix failing tests before committing!"
+  exit 1
+fi
+
+echo "✅ Tests passed!"
+echo ""
+echo "✅ All pre-commit checks passed! Proceeding with commit..."

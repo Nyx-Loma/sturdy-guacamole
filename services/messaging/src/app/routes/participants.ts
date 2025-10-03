@@ -159,7 +159,7 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
     Querystring: unknown;
   }>('/v1/conversations/:conversationId/participants', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const params = ListParticipantsParamsSchema.parse(request.params);
+      void ListParticipantsParamsSchema.parse(request.params);
       const query = ListParticipantsQuerySchema.parse(request.query);
 
       // Decode cursor if provided

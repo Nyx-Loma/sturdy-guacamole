@@ -21,6 +21,7 @@ export interface StreamEvent {
 
 export interface ConsumerOptions {
   redis: Redis;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pgPool: any; // Pool from 'pg'
   hub: WebSocketHub;
   stream: string;
@@ -46,7 +47,6 @@ export interface Consumer {
 export const createConsumer = (opts: ConsumerOptions): Consumer => {
   const batchSize = opts.batchSize ?? 128;
   const blockMs = opts.blockMs ?? 1000;
-  const maxRetries = opts.maxRetries ?? 5;
   const pelHygieneIntervalMs = opts.pelHygieneIntervalMs ?? 30000; // 30s default
   const log = opts.logger ?? console;
 
@@ -65,6 +65,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
         'MKSTREAM'
       );
       log.info({ stream: opts.stream, group: opts.group }, 'consumer_group_created');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       if (error?.message?.includes('BUSYGROUP')) {
         log.debug('consumer_group_already_exists');
@@ -202,6 +203,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
         reason
       ]);
       
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (messagingMetrics as any).dlqWrittenTotal?.labels({ reason }).inc();
       log.info({ 
         messageId: pending.event.messageId,
@@ -211,6 +213,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
       
     } catch (error) {
       // CRITICAL: DLQ write failure must NOT block ACK
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (messagingMetrics as any).dlqWriteFailuresTotal?.inc();
       log.error({ err: error, redisId: pending.redisId, reason }, 'dlq_write_failed');
       // Swallow error - we'll still ACK the poison message
@@ -295,7 +298,8 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
     }
     
     // Update buffer size metric
-    (messagingMetrics as any).consumerReorderBufferSize?.set(buffer.length - acked.length);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (messagingMetrics as any).consumerReorderBufferSize?.set(buffer.length - acked.length);
   };
 
   const pelHygieneLoop = async () => {
@@ -319,13 +323,15 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
         if (result && Array.isArray(result) && result[1] && Array.isArray(result[1])) {
           const claimedCount = result[1].length;
           log.info({ count: claimedCount }, 'pel_hygiene_claimed_stale_messages');
-          (messagingMetrics as any).consumerPelReclaimedTotal?.inc(claimedCount);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (messagingMetrics as any).consumerPelReclaimedTotal?.inc(claimedCount);
         }
         
         // Update PEL size metric
         const pelInfo: unknown = await opts.redis.xpending(opts.stream, opts.group, '-', '+', 1);
         if (pelInfo && Array.isArray(pelInfo) && pelInfo.length > 0) {
-          (messagingMetrics as any).consumerPelSize?.set(pelInfo.length);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (messagingMetrics as any).consumerPelSize?.set(pelInfo.length);
         }
         
       } catch (error) {

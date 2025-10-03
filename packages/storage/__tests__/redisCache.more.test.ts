@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { CacheEnvelope } from "../src/cache/cacheManager";
 
 interface FakeRedisInstance {
   connect: ReturnType<typeof vi.fn>;
@@ -51,10 +50,6 @@ vi.mock("ioredis", () => {
 });
 
 import { RedisCache } from "../src/cache/redisCache";
-
-function makeEnvelope<T>(value: T): CacheEnvelope<T> {
-  return { value, storedAt: Date.now() };
-}
 
 describe("RedisCache more", () => {
   beforeEach(() => {

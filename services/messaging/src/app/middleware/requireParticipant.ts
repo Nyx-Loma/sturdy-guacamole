@@ -105,7 +105,7 @@ async function isParticipant(
     // return userIds.includes(userId);
     
     return false;
-  } catch (error) {
+  } catch {
     // Log error but don't block request - fail open for now
     // In production, you may want to fail closed (return false)
     return true; // Temporary: fail open during development
@@ -181,6 +181,7 @@ export function createRequireParticipant(cache: ParticipantCache) {
 
     // User is authorized - proceed
     // Attach auth context to request for downstream handlers
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (request as any).authContext = authContext;
   };
 }
@@ -220,6 +221,7 @@ export function createRequireParticipantOrSelf(cache: ParticipantCache) {
 
     // Allow if removing self
     if (authContext && targetUserId === authContext.userId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (request as any).authContext = authContext;
       return;
     }

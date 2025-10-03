@@ -61,7 +61,7 @@ describe('Dispatcher Integration Tests', () => {
     // Clean up Redis stream
     try {
       await redis.del(STREAM_NAME);
-    } catch (error) {
+    } catch {
       // Ignore if stream doesn't exist
     }
   });

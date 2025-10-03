@@ -99,7 +99,7 @@ function makeStreamAdapter(overrides?: Partial<StreamAdapter>): StreamAdapter {
   return {
     kind: "stream",
     async init() {},
-    async publish(_message) {},
+    async publish() {},
     subscribe: vi.fn().mockReturnValue((async function* () {})()),
     async commitCursor() {},
     async healthCheck() {

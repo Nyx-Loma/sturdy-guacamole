@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RedisStreamAdapter } from "../src/adapters/redisStream";
-import { ConsistencyError, TimeoutError, TransientAdapterError } from "../src/errors";
+import { TimeoutError, TransientAdapterError } from "../src/errors";
 
 const connectMock = vi.fn();
 const quitMock = vi.fn();

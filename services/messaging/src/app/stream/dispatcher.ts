@@ -1,6 +1,6 @@
 import type { Redis } from 'ioredis';
 import type { FastifyBaseLogger } from 'fastify';
-import type { OutboxRepository, OutboxRow } from '../../repositories/outboxRepository';
+import type { OutboxRepository } from '../../repositories/outboxRepository';
 import { messagingMetrics } from '../../observability/metrics';
 
 export interface DispatcherOptions {

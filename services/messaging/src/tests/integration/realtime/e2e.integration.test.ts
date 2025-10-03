@@ -64,10 +64,10 @@ describe('E2E Realtime Pipeline Integration Tests', () => {
       // Delete consumer group if exists
       try {
         await redis.xgroup('DESTROY', STREAM_NAME, 'test-hub');
-      } catch (error) {
+      } catch {
         // Ignore if group doesn't exist
       }
-    } catch (error) {
+    } catch {
       // Ignore cleanup errors
     }
   });

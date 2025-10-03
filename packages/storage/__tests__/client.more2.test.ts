@@ -69,10 +69,10 @@ function makeInMemoryCache(store: Map<string, CacheEntry>) {
 
 describe("client easy gains", () => {
   it("strong read falls back to backend when cache entry is stale", async () => {
-    const { adapter, store } = makeBlobAdapterWithStore();
+    const { adapter } = makeBlobAdapterWithStore();
     const metrics = createTestMetrics();
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const client = createStorageClient({ schemaVersion: 1 as const, blobAdapters: [{ namespaces: namespace, adapter }] }, { logger, metrics: metrics.metrics, cache: { provider: makeInMemoryCache(new Map()), options: { metrics: metrics.metrics, namespace, stalenessBudgetMs: 1 } } });
+    void createStorageClient({ schemaVersion: 1 as const, blobAdapters: [{ namespaces: namespace, adapter }] }, { logger, metrics: metrics.metrics, cache: { provider: makeInMemoryCache(new Map()), options: { metrics: metrics.metrics, namespace, stalenessBudgetMs: 1 } } });
     const ref = { namespace, id: "b1" };
     const fresh = await adapter.write(ref as any, Buffer.from("fresh"), {} as any, {} as any);
     const cacheStore = new Map<string, CacheEntry>();
@@ -85,10 +85,10 @@ describe("client easy gains", () => {
   });
 
   it("strong record read falls back to backend when cache is stale", async () => {
-    const { adapter, store } = makeRecordAdapterWithStore();
+    const { adapter } = makeRecordAdapterWithStore();
     const metrics = createTestMetrics();
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const client = createStorageClient({ schemaVersion: 1 as const, recordAdapters: [{ namespaces: namespace, adapter }] }, { logger, metrics: metrics.metrics, cache: { provider: makeInMemoryCache(new Map()), options: { metrics: metrics.metrics, namespace, stalenessBudgetMs: 1 } } });
+    void createStorageClient({ schemaVersion: 1 as const, recordAdapters: [{ namespaces: namespace, adapter }] }, { logger, metrics: metrics.metrics, cache: { provider: makeInMemoryCache(new Map()), options: { metrics: metrics.metrics, namespace, stalenessBudgetMs: 1 } } });
     const ref = { namespace, id: "r1" };
     const fresh = await adapter.upsert(namespace, { id: ref.id, v: 1 }, {} as any, {} as any);
     const cacheStore = new Map<string, CacheEntry>();
