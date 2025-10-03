@@ -187,6 +187,59 @@ metricsRegistry.registerMetric(consumerPelSize);
 metricsRegistry.registerMetric(consumerReorderBufferSize);
 metricsRegistry.registerMetric(consumerPelReclaimedTotal);
 
+// Stage 3A: Conversation metrics
+const conversationsCreatedTotal = new Counter({
+  name: 'messaging_conversations_created_total',
+  help: 'Total conversations created',
+  labelNames: ['type'],
+  registers: [metricsRegistry]
+});
+
+const conversationsDeletedTotal = new Counter({
+  name: 'messaging_conversations_deleted_total',
+  help: 'Total conversations deleted (soft delete)',
+  registers: [metricsRegistry]
+});
+
+const conversationVersionConflicts = new Counter({
+  name: 'messaging_conversation_version_conflicts_total',
+  help: 'Optimistic concurrency conflicts (409 errors)',
+  registers: [metricsRegistry]
+});
+
+// Stage 3B: Participant metrics
+const participantsAddedTotal = new Counter({
+  name: 'messaging_participants_added_total',
+  help: 'Total participants added to conversations',
+  registers: [metricsRegistry]
+});
+
+const participantsRemovedTotal = new Counter({
+  name: 'messaging_participants_removed_total',
+  help: 'Total participants removed from conversations',
+  registers: [metricsRegistry]
+});
+
+const participantCacheHits = new Counter({
+  name: 'messaging_participant_cache_hits_total',
+  help: 'Participant cache hits',
+  registers: [metricsRegistry]
+});
+
+const participantCacheMisses = new Counter({
+  name: 'messaging_participant_cache_misses_total',
+  help: 'Participant cache misses',
+  registers: [metricsRegistry]
+});
+
+metricsRegistry.registerMetric(conversationsCreatedTotal);
+metricsRegistry.registerMetric(conversationsDeletedTotal);
+metricsRegistry.registerMetric(conversationVersionConflicts);
+metricsRegistry.registerMetric(participantsAddedTotal);
+metricsRegistry.registerMetric(participantsRemovedTotal);
+metricsRegistry.registerMetric(participantCacheHits);
+metricsRegistry.registerMetric(participantCacheMisses);
+
 export const messagingMetrics = {
   requestCounter,
   requestDurationMs,
@@ -215,7 +268,16 @@ export const messagingMetrics = {
   dlqWriteFailuresTotal,
   consumerPelSize,
   consumerReorderBufferSize,
-  consumerPelReclaimedTotal
+  consumerPelReclaimedTotal,
+  // Stage 3A
+  conversationsCreatedTotal,
+  conversationsDeletedTotal,
+  conversationVersionConflicts,
+  // Stage 3B
+  participantsAddedTotal,
+  participantsRemovedTotal,
+  participantCacheHits,
+  participantCacheMisses,
 };
 
 
