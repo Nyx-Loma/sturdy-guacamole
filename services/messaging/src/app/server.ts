@@ -66,6 +66,9 @@ export const createServer = async (): Promise<MessagingServer> => {
   registerErrorHandler(app);
   registerRoutes(app);
   registerMetricsRoute(app);
+  
+  // Stage 3D: Apply authorization middleware AFTER routes are registered
+  // This will be wired in the start() method after container is initialized
 
   const hub = new WebSocketHub({
     heartbeatIntervalMs: config.WEBSOCKET_HEARTBEAT_INTERVAL_MS,
@@ -86,6 +89,17 @@ export const createServer = async (): Promise<MessagingServer> => {
   });
 
   const container = await createMessagingContainer(app, config, hub);
+
+  // Stage 3D: Apply authorization middleware (after container is created)
+  // Feature flag: PARTICIPANT_ENFORCEMENT_ENABLED (defaults to false for staged rollout)
+  if (config.PARTICIPANT_ENFORCEMENT_ENABLED !== false) {
+    const { createRequireParticipant } = await import('./middleware/requireParticipant');
+    const requireParticipant = createRequireParticipant(app.participantCache);
+    app.addHook('preHandler', requireParticipant);
+    app.log.info('authorization_middleware_enabled');
+  } else {
+    app.log.info('authorization_middleware_disabled');
+  }
 
   app.get('/ws/metrics', async (_, reply) => {
     reply.header('content-type', 'text/plain');

@@ -78,7 +78,11 @@ export const MessagingConfigSchema = z
     ENABLE_PAYLOAD_FINGERPRINT: BOOL.default(true),
     STRONG_READ_CACHE_TTL_MS: NUMBER_FROM_STRING(z.number().int().nonnegative()).default(0),
     EVENTUAL_READ_CACHE_TTL_MS: NUMBER_FROM_STRING(z.number().int().nonnegative()).default(30_000),
-    UUID_NAMESPACE: UUID_SCHEMA.optional()
+    UUID_NAMESPACE: UUID_SCHEMA.optional(),
+    // Stage 3 feature flags
+    PARTICIPANT_ENFORCEMENT_ENABLED: BOOL.default(false),
+    PARTICIPANT_CACHE_ENABLED: BOOL.default(true),
+    TARGETED_BROADCAST_ENABLED: BOOL.default(true),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.MESSAGING_USE_STORAGE === 'on' && cfg.STORAGE_DRIVER !== 'postgres') {

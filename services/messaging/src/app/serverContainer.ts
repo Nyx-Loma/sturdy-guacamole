@@ -10,12 +10,14 @@ import { createConversationService } from '../usecases/conversations/conversatio
 import { createOutboxRepository } from '../repositories/outboxRepository';
 import { createDispatcher, type Dispatcher } from './stream/dispatcher';
 import { createConsumer, type Consumer } from './stream/consumer';
+import { createParticipantCache, type ParticipantCache } from './stream/participantCache';
 
 export interface MessagingContainer {
   init(): Promise<void>;
   pgPool: Pool;
   redis: Redis;
   storage: ReturnType<typeof createStorageClient>;
+  participantCache?: ParticipantCache;
   dispatcher?: Dispatcher;
   consumer?: Consumer;
 }
@@ -37,6 +39,23 @@ export const createMessagingContainer = async (
     maxRetriesPerRequest: null,
     enableReadyCheck: true,
     enableOfflineQueue: false,
+  });
+
+  // Create separate Redis client for participant cache pubsub
+  const redisSubscriber = new Redis(config.REDIS_URL ?? 'redis://localhost:6379', {
+    lazyConnect: true,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: true,
+    enableOfflineQueue: false,
+  });
+
+  // Create participant cache (Stage 3B/3C)
+  const participantCache = createParticipantCache({
+    redis,
+    subscriberRedis: redisSubscriber,
+    logger: app.log,
+    ttlSeconds: 300, // 5min fallback TTL
+    invalidationChannel: 'conv.participants.inval',
   });
 
   // Create storage client with shared pool/redis
@@ -118,9 +137,13 @@ export const createMessagingContainer = async (
 
   const init = async () => {
     await redis.connect();
+    await redisSubscriber.connect();
+    await participantCache.start();
+    
     app.decorate('pgPool', pgPool);
     app.decorate('redis', redis);
     app.decorate('storage', storage);
+    app.decorate('participantCache', participantCache);
     app.decorate('messageService', messageService);
     app.decorate('conversationService', conversationService);
     if (dispatcher) {
@@ -129,6 +152,12 @@ export const createMessagingContainer = async (
     if (consumer) {
       app.decorate('consumer', consumer);
     }
+    
+    // Stop participant cache on shutdown
+    app.addHook('onClose', async () => {
+      await participantCache.stop();
+      await redisSubscriber.quit();
+    });
   };
 
   return {
@@ -136,6 +165,7 @@ export const createMessagingContainer = async (
     pgPool,
     redis,
     storage,
+    participantCache,
     dispatcher,
     consumer,
   };
@@ -146,6 +176,7 @@ declare module 'fastify' {
     pgPool: Pool;
     redis: Redis;
     storage: ReturnType<typeof createStorageClient>;
+    participantCache: ParticipantCache;
     dispatcher?: Dispatcher;
     consumer?: Consumer;
   }
