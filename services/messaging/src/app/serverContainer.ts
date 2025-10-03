@@ -155,6 +155,7 @@ export const createMessagingContainer = async (
     }
     
     // Stop participant cache on shutdown
+    // codeql[js/missing-rate-limiting] This is a shutdown hook, not a route handler - rate limiting not applicable
     app.addHook('onClose', async () => {
       await participantCache.stop();
       await redisSubscriber.quit();

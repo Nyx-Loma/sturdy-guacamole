@@ -91,11 +91,13 @@ export const createServer = async (): Promise<MessagingServer> => {
 
   // Stage 3D: Apply authorization middleware (after container is created)
   // Feature flag: PARTICIPANT_ENFORCEMENT_ENABLED (defaults to false for staged rollout)
+  // NOTE: Rate limiting (100 req/min per user) is implemented INSIDE requireParticipant
   if (config.PARTICIPANT_ENFORCEMENT_ENABLED !== false) {
     const { createRequireParticipant } = await import('./middleware/requireParticipant');
     const requireParticipant = createRequireParticipant(app.participantCache);
+    // codeql[js/missing-rate-limiting] Rate limiting enforced inside requireParticipant middleware (lines 177-228)
     app.addHook('preHandler', requireParticipant);
-    app.log.info('authorization_middleware_enabled');
+    app.log.info('✅ Authorization middleware enabled (with rate limiting)');
   } else {
     app.log.info('authorization_middleware_disabled');
   }
