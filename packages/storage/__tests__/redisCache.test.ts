@@ -15,7 +15,6 @@ interface FakeRedisInstance {
 }
 
 const redisInstances: FakeRedisInstance[] = [];
-let RedisConstructorMock: ReturnType<typeof vi.fn>;
 
 function createFakeRedisInstance(): FakeRedisInstance {
   const instance: FakeRedisInstance = {
@@ -44,7 +43,7 @@ function createFakeRedisInstance(): FakeRedisInstance {
 }
 
 vi.mock("ioredis", () => {
-  RedisConstructorMock = vi.fn(() => {
+  const RedisConstructorMock = vi.fn(() => {
     const instance = createFakeRedisInstance();
     redisInstances.push(instance);
     return instance;
