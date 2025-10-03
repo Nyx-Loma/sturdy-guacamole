@@ -24,6 +24,9 @@ describe.skipIf(skip)("S3 blob adapter contract", () => {
   const { client, context } = createTestStorageClient({ namespace: "s3-contract", blobAdapter: adapter });
 
   it("writes and reads blobs", async () => {
+    // Initialize S3 adapter (checks bucket exists)
+    await adapter.init();
+
     const ref = { id: `obj-${Date.now()}`, namespace: context.namespace };
     const payload = Buffer.from("hello-s3");
 

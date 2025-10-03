@@ -10,7 +10,11 @@ describe.skipIf(skip)("Redis stream adapter", () => {
   describeStreamAdapterContract({
     name: "Redis",
     namespace: "redis-contract",
-    createAdapter: async () => ({ adapter: new RedisStreamAdapter({ redisUrl }) }),
+    createAdapter: async () => {
+      const adapter = new RedisStreamAdapter({ redisUrl });
+      await adapter.init();
+      return { adapter };
+    },
   });
 });
 

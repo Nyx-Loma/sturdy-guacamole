@@ -98,6 +98,7 @@ export const authRoutes = async (app: FastifyInstance, { container }: { containe
       refresh_token: result.refreshToken,
       expires_in: result.expiresIn
     });
+  // codeql[js/missing-rate-limiting] Rate limiting is enforced at server level via registerRateLimiter in server.ts
   });
 };
 
