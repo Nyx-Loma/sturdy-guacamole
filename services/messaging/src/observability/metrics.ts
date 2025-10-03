@@ -232,6 +232,20 @@ const participantCacheMisses = new Counter({
   registers: [metricsRegistry]
 });
 
+// Stage 3D: Security metrics
+const securityDeniedTotal = new Counter({
+  name: 'sanctum_security_denied_total',
+  help: 'Authorization denials',
+  labelNames: ['route', 'reason'],
+  registers: [metricsRegistry]
+});
+
+const authenticationFailures = new Counter({
+  name: 'messaging_authentication_failures_total',
+  help: 'Authentication failures (401 errors)',
+  registers: [metricsRegistry]
+});
+
 metricsRegistry.registerMetric(conversationsCreatedTotal);
 metricsRegistry.registerMetric(conversationsDeletedTotal);
 metricsRegistry.registerMetric(conversationVersionConflicts);
@@ -239,6 +253,8 @@ metricsRegistry.registerMetric(participantsAddedTotal);
 metricsRegistry.registerMetric(participantsRemovedTotal);
 metricsRegistry.registerMetric(participantCacheHits);
 metricsRegistry.registerMetric(participantCacheMisses);
+metricsRegistry.registerMetric(securityDeniedTotal);
+metricsRegistry.registerMetric(authenticationFailures);
 
 export const messagingMetrics = {
   requestCounter,
@@ -278,6 +294,9 @@ export const messagingMetrics = {
   participantsRemovedTotal,
   participantCacheHits,
   participantCacheMisses,
+  // Stage 3D
+  securityDeniedTotal,
+  authenticationFailures,
 };
 
 
