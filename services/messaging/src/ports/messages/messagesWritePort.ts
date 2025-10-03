@@ -7,6 +7,7 @@ import type { Actor, IsoDateTime, Uuid } from '../shared/types';
 export type CreateMessageCommand = {
   input: CreateMessageInput;
   idempotencyKey?: string;
+  messageId?: Uuid;
 };
 
 export interface MessagesWritePort {

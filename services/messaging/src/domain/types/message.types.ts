@@ -89,6 +89,7 @@ export const MessageSchema = z.object({
   senderId: UUIDSchema,
   type: MessageTypeSchema,
   status: MessageStatusSchema,
+  seq: z.number().int().nonnegative().optional(),
   
   // Encrypted message content (E2EE)
   encryptedContent: Base64Schema,
@@ -118,6 +119,7 @@ export type Message = z.infer<typeof MessageSchema>;
 export const CreateMessageSchema = MessageSchema.omit({
   id: true,
   status: true,
+  seq: true,
   createdAt: true,
   updatedAt: true,
   deliveredAt: true,

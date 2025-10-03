@@ -4,7 +4,8 @@ export type ConversationEvent =
   | { kind: 'ConversationCreated'; id: Uuid }
   | { kind: 'ParticipantAdded'; conversationId: Uuid; userId: Uuid }
   | { kind: 'ParticipantRemoved'; conversationId: Uuid; userId: Uuid }
-  | { kind: 'ConversationSoftDeleted'; id: Uuid };
+  | { kind: 'ConversationSoftDeleted'; id: Uuid }
+  | { kind: 'MessageSent'; conversationId: Uuid; messageId: Uuid; actorId: Uuid };
 
 export type LastMessageUpdate = {
   conversationId: Uuid;

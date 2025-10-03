@@ -16,8 +16,12 @@ export type MessageServiceDeps = {
   preview?: (input: CreateMessageInput) => string;
 };
 
+export type SendOptions = {
+  messageId?: Uuid;
+};
+
 export type MessageService = {
-  send(command: CreateMessageCommand, actor: Actor): Promise<Uuid>;
+  send(command: CreateMessageCommand, actor: Actor, options?: SendOptions): Promise<Uuid>;
   markRead(ids: Uuid[], at?: IsoDateTime, actor?: Actor): Promise<void>;
   updateStatus(id: Uuid, status: Message['status'], at?: IsoDateTime): Promise<void>;
   softDelete(id: Uuid, at?: IsoDateTime, actor?: Actor): Promise<void>;
@@ -43,9 +47,14 @@ export const createMessageService = ({
   preview = DEFAULT_PREVIEW
 }: MessageServiceDeps): MessageService => {
   return {
-    async send(command, actor) {
-      const id = await write.create(command);
-      const message = await ensureMessage(read, id);
+    async send(command, actor, options) {
+      const id = await write.create({ ...command, messageId: options?.messageId });
+      let message = await ensureMessage(read, id);
+
+      // Retry ensuring the message to handle eventual consistency
+      if (!message) {
+        message = await ensureMessage(read, id);
+      }
 
       await events.updateLastMessage({
         conversationId: message.conversationId,
@@ -55,9 +64,10 @@ export const createMessageService = ({
       });
 
       await events.publish({
-        kind: 'ParticipantAdded',
+        kind: 'MessageSent',
         conversationId: message.conversationId,
-        userId: actor.id
+        messageId: id,
+        actorId: actor.id
       });
 
       return id;

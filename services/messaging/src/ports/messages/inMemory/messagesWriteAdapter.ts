@@ -27,15 +27,14 @@ export const createInMemoryMessagesWriteAdapter = (
   };
 
   return {
-    async create({ input, idempotencyKey }) {
-
+    async create({ input, idempotencyKey, messageId }) {
       if (idempotencyKey) {
         const existingId = clientIndex.get(makeClientKey(input.senderId, idempotencyKey));
         if (existingId) return existingId;
       }
 
       const timestamp = now().toISOString();
-      const id = generateId();
+      const id = messageId ?? generateId();
 
       const message: Message = {
         id,

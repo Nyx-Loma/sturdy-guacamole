@@ -23,18 +23,33 @@ export const setupDatabaseTests = (
   } = {}
 ): DatabaseTestContext => {
   const { truncateTables = [], requireSchema = true } = options;
-  const client = new Client({ connectionString });
+  const client = new Client({ 
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    query_timeout: 10000,
+    application_name: 'integration-tests'
+  });
   let available = false;
 
   beforeAll(async () => {
+    if (process.env.CI) {
+      console.log('🔍 Running in CI environment - checking database connectivity...');
+    }
+
     // Check if database is available
     const health = await checkDatabaseHealth(connectionString);
     
     if (!health.available) {
       console.warn(`⚠️  Database not available: ${health.error}`);
-      console.warn('💡 Integration tests will be skipped. To run them:');
-      console.warn('   1. Start database: docker-compose -f docker-compose.dev.yml up -d messaging-db');
-      console.warn('   2. Initialize schema: pnpm db:setup:messaging');
+      
+      if (process.env.CI) {
+        console.error('❌ DATABASE UNAVAILABLE IN CI - This will cause test failures!');
+        console.error('Expected connection string:', connectionString.replace(/:[^:@]+@/, ':***@'));
+      } else {
+        console.warn('💡 Integration tests will be skipped. To run them:');
+        console.warn('   1. Start database: docker-compose -f docker-compose.dev.yml up -d messaging-db');
+        console.warn('   2. Initialize schema: pnpm db:setup:messaging');
+      }
       return; // Tests will skip via the check in each test
     }
 
@@ -44,7 +59,12 @@ export const setupDatabaseTests = (
       
       if (!schemaReady) {
         console.warn('⚠️  Database schema not initialized');
-        console.warn('💡 Run: pnpm db:setup:messaging');
+        
+        if (process.env.CI) {
+          console.error('❌ DATABASE SCHEMA MISSING IN CI - Check schema initialization step!');
+        } else {
+          console.warn('💡 Run: pnpm db:setup:messaging');
+        }
         return;
       }
     }
@@ -52,6 +72,10 @@ export const setupDatabaseTests = (
     // Connect to database
     await client.connect();
     available = true;
+    
+    if (process.env.CI) {
+      console.log('✅ Database connection successful in CI');
+    }
   });
 
   beforeEach(async () => {

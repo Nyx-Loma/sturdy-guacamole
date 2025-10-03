@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     
     services:
-      postgres:
+      messaging-db:
         image: postgres:16
         env:
           POSTGRES_DB: messaging
@@ -21,7 +21,7 @@ jobs:
         ports:
           - 5433:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U messaging -d messaging"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -44,9 +44,55 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Phase 1: Debug Database Connectivity
+      - name: Debug - Verify PostgreSQL service
+        run: |
+          echo "🔍 Checking PostgreSQL connectivity..."
+          echo "Service name: messaging-db"
+          echo "Port mapping: 5433 (host) -> 5432 (container)"
+          echo "Database URL: postgresql://messaging:messaging@localhost:5433/messaging"
+          
+          # Check if port is open
+          echo "📡 Checking if port 5433 is open..."
+          nc -zv localhost 5433 || echo "❌ Port 5433 not accessible"
+          
+          # Try to connect with pg_isready
+          echo "🏥 Running pg_isready health check..."
+          pg_isready -h localhost -p 5433 -U messaging -d messaging -t 10 || echo "❌ pg_isready failed"
+          
+          # Try basic connection
+          echo "🔌 Testing basic connection..."
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c "SELECT version();" || echo "❌ Connection test failed"
+
+      # Phase 3: Verify Schema Application with Error Checking
       - name: Initialize database schema
         run: |
-          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/schema.sql
+          echo "📋 Applying database schema..."
+          
+          # Apply schema with error handling
+          if PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/schema.sql; then
+            echo "✅ Schema applied successfully"
+          else
+            echo "❌ Schema application failed!"
+            exit 1
+          fi
+          
+          # Verify tables were created
+          echo "🔍 Verifying tables exist..."
+          TABLE_COUNT=$(PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'messaging';")
+          
+          echo "Found $TABLE_COUNT tables in messaging schema"
+          
+          if [ "$TABLE_COUNT" -gt 0 ]; then
+            echo "✅ Database schema verified"
+            
+            # List the tables
+            echo "📊 Tables in messaging schema:"
+            PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'messaging' ORDER BY table_name;"
+          else
+            echo "❌ No tables found in messaging schema!"
+            exit 1
+          fi
         env:
           DATABASE_URL: postgresql://messaging:messaging@localhost:5433/messaging
 
@@ -56,11 +102,39 @@ jobs:
       - name: Run type check
         run: pnpm typecheck
 
+      # Phase 4: Test Environment Validation
+      - name: Validate test environment
+        run: |
+          echo "🧪 Validating test environment before running tests..."
+          
+          # Quick connection test
+          echo "Testing database connection..."
+          if PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c "SELECT 1;" > /dev/null 2>&1; then
+            echo "✅ Database connection successful"
+          else
+            echo "❌ Database connection failed - tests will be skipped"
+            echo "⚠️  This will cause coverage to drop below thresholds"
+            exit 1
+          fi
+          
+          # Verify tables still exist
+          TABLE_COUNT=$(PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'messaging';")
+          
+          if [ "$TABLE_COUNT" -gt 0 ]; then
+            echo "✅ Database schema intact ($TABLE_COUNT tables)"
+          else
+            echo "❌ Database schema missing!"
+            exit 1
+          fi
+          
+          echo "🎯 Environment ready for integration tests"
+
       - name: Run tests
         run: pnpm test
         env:
           DATABASE_URL: postgresql://messaging:messaging@localhost:5433/messaging
           NODE_ENV: test
+          CI: true
 
       - name: Check coverage
         run: pnpm check:coverage
