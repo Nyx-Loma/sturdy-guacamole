@@ -15,7 +15,63 @@ import { messagingMetrics } from '../../observability/metrics';
 import { PayloadValidationError } from '../../domain/errors';
 
 export const registerMessageRoutes = async (app: FastifyInstance) => {
-  app.post('/', async (request, reply) => {
+  app.post('/', {
+    schema: {
+      description: 'Send an end-to-end encrypted message',
+      tags: ['messages'],
+      security: [{ bearerAuth: [] }],
+      headers: {
+        type: 'object',
+        properties: {
+          'idempotency-key': { type: 'string', format: 'uuid', description: 'Optional UUID for idempotent sends' },
+          'x-device-id': { type: 'string', description: 'Device identifier' },
+          'x-session-id': { type: 'string', description: 'Session identifier' },
+        },
+      },
+      body: {
+        type: 'object',
+        required: ['conversationId', 'senderId', 'type', 'encryptedContent', 'payloadSizeBytes'],
+        properties: {
+          conversationId: { type: 'string', format: 'uuid', description: 'Conversation UUID' },
+          senderId: { type: 'string', format: 'uuid', description: 'Sender user UUID' },
+          type: { type: 'string', enum: ['text', 'image', 'file', 'audio', 'video'], description: 'Message type' },
+          encryptedContent: { type: 'string', description: 'Base64-encoded encrypted payload' },
+          payloadSizeBytes: { type: 'number', description: 'Size in bytes of the encrypted content' },
+          contentMimeType: { type: 'string', description: 'MIME type of decrypted content' },
+          metadata: { type: 'object', description: 'Optional encrypted metadata' },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            conversationId: { type: 'string', format: 'uuid' },
+            senderId: { type: 'string', format: 'uuid' },
+            type: { type: 'string' },
+            encryptedContent: { type: 'string' },
+            contentSize: { type: 'number' },
+            createdAt: { type: 'string', format: 'date-time' },
+            seq: { type: 'number' },
+          },
+        },
+        200: {
+          description: 'Idempotent replay of previously sent message',
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            conversationId: { type: 'string', format: 'uuid' },
+            senderId: { type: 'string', format: 'uuid' },
+            type: { type: 'string' },
+            encryptedContent: { type: 'string' },
+            contentSize: { type: 'number' },
+            createdAt: { type: 'string', format: 'date-time' },
+            seq: { type: 'number' },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const params = SendMessageRequestSchema.parse({
       body: request.body,
       headers: request.headers

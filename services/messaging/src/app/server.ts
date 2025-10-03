@@ -1,5 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCors from '@fastify/cors';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
 import { loadConfig } from '../config';
 import { registerErrorHandler } from './errorHandler';
 import { registerRateLimiter } from './rateLimiter';
@@ -129,6 +131,50 @@ export const createServer = async (): Promise<MessagingServer> => {
     ? createDispatcherRunner(container.dispatcher, config, app.log)
     : null;
 
+  // Register Swagger for OpenAPI documentation
+  await app.register(fastifySwagger, {
+    openapi: {
+      openapi: '3.1.0',
+      info: {
+        title: 'Sanctum Messaging API',
+        description: 'End-to-end encrypted messaging service with realtime delivery and conversation management',
+        version: '1.0.0',
+        contact: {
+          name: 'Sanctum Platform',
+        },
+      },
+      servers: [
+        { url: `http://localhost:${config.HTTP_PORT}`, description: 'Local development' },
+        { url: 'https://messages.sanctum.app', description: 'Production' },
+      ],
+      tags: [
+        { name: 'messages', description: 'Message sending and retrieval' },
+        { name: 'conversations', description: 'Conversation management' },
+        { name: 'participants', description: 'Participant management' },
+        { name: 'health', description: 'Health and status checks' },
+      ],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+          },
+        },
+      },
+    },
+  });
+
+  // Register Swagger UI
+  await app.register(fastifySwaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+    },
+    staticCSP: true,
+  });
+
   return {
     app,
     async start() {
@@ -143,6 +189,7 @@ export const createServer = async (): Promise<MessagingServer> => {
         await container.consumer.start();
       }
       await app.listen({ host: config.HTTP_HOST, port: config.HTTP_PORT });
+      app.log.info(`📚 OpenAPI documentation available at http://${config.HTTP_HOST}:${config.HTTP_PORT}/docs`);
     },
     async stop() {
       if (container.consumer) {
