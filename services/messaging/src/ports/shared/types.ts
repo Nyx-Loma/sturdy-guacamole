@@ -8,6 +8,8 @@ export type IsoDateTime = string;
 export type Actor = {
   id: Uuid;
   role: 'system' | 'user' | 'service' | ParticipantRole;
+  deviceId?: string;
+  sessionId?: string;
 };
 
 export type MessageFilter = {

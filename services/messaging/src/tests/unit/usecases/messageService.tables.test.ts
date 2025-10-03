@@ -63,7 +63,7 @@ describe('messageService.send', () => {
 
     expect(id).toBe('created-id');
     expect(events.updateLastMessage).toHaveBeenCalledWith({ conversationId: 'conversation-id', messageId: 'created-id', preview: 'SGVsbG8=', occurredAt: '2025-10-02T00:00:00.000Z' });
-    expect(events.publish).toHaveBeenCalledWith({ kind: 'ParticipantAdded', conversationId: 'conversation-id', userId: actor.id });
+    expect(events.publish).toHaveBeenCalledWith({ kind: 'MessageSent', conversationId: 'conversation-id', messageId: 'created-id', actorId: actor.id });
   });
 
   test('throws when message not found after creation', async () => {

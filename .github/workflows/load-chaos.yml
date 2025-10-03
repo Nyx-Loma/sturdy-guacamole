@@ -1,0 +1,50 @@
+name: Load and Chaos Tests
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  load_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install
+      - name: Run k6 load test
+        run: |
+          npm install -g k6
+          k6 run packages/storage/tests/load/k6/stream_load_test.js
+        env:
+          STREAM_URL: ${{ secrets.STREAM_URL }}
+          STREAM_TOKEN: ${{ secrets.STREAM_TOKEN }}
+
+  chaos_tests:
+    runs-on: ubuntu-latest
+    needs: load_tests
+    services:
+      toxiproxy:
+        image: shopify/toxiproxy
+        ports:
+          - 8474:8474
+          - 16379:16379
+          - 19001:19001
+    steps:
+      - uses: actions/checkout@v4
+      - run: pnpm install
+      - name: Configure toxiproxy
+        run: |
+          curl -s http://localhost:8474/populate -XPOST --data-binary @packages/storage/tests/chaos/toxiproxy.config.json
+      - name: Inject Redis latency
+        run: packages/storage/tests/chaos/scripts/redis_latency.sh
+      - name: Inject S3 disconnect
+        run: packages/storage/tests/chaos/scripts/s3_disconnect.sh
+
+

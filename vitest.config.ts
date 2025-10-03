@@ -88,6 +88,29 @@ const projects = [
       include: ['services/**/src/tests/security/**/*.test.ts', 'services/**/tests/security/**/*.test.ts'],
       setupFiles: ['vitest.global.setup.ts', 'packages/crypto/vitest.setup.ts']
     }
+  }),
+  defineProject({
+    resolve: { alias },
+    test: {
+      name: 'storage-contracts',
+      include: ['packages/storage/tests/contracts/**/*.test.ts'],
+      globals: true,
+      environment: 'node'
+    }
+  }),
+  defineProject({
+    resolve: { alias },
+    test: {
+      name: 'storage-integration',
+      include: ['packages/storage/tests/integration/**/*.test.ts'],
+      setupFiles: ['packages/storage/tests/integration/setup.ts'],
+      testTimeout: 120_000,
+      hookTimeout: 120_000,
+      globals: true,
+      sequence: {
+        mode: 'serial'
+      }
+    }
   })
 ];
 

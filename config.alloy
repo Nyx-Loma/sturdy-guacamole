@@ -1,0 +1,28 @@
+prometheus.scrape "sanctum_storage" {
+  job_name        = "sanctum_storage"
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+
+  targets = [
+    {
+      "__address__" = env("SANCTUM_STORAGE_METRICS_ADDR"),
+    },
+  ]
+
+  forward_to = [
+    prometheus.remote_write.metrics_hosted_prometheus.receiver,
+  ]
+}
+
+prometheus.remote_write "metrics_hosted_prometheus" {
+  endpoint {
+    name = "hosted-prometheus"
+    url  = "https://prometheus-prod-39-prod-eu-north-0.grafana.net/api/prom/push"
+
+    basic_auth {
+      username = "2712117"
+      password = env("GRAFANA_PROM_PASSWORD")
+    }
+  }
+}
+

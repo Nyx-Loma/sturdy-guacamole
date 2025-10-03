@@ -8,6 +8,26 @@ export default tseslint.config(
     ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**'],
   },
   {
+    files: ['packages/storage/src/errors/**/*.ts', 'packages/storage/src/types.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '../adapters/base',
+              message: 'errors/types must not depend on adapters to preserve layering',
+            },
+            {
+              name: '../adapters',
+              message: 'errors/types must not depend on adapters to preserve layering',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.ts'],
     languageOptions: {
       parserOptions: {

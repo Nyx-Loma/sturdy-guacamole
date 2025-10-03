@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import fastifyCors from '@fastify/cors';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
 import { loadConfig } from '../config/index.js';
 import { registerRoutes } from './routes/index.js';
 import { createInMemoryDirectoryRepository } from '../repositories/inMemoryRepository.js';
@@ -70,6 +72,48 @@ export const createServer = (): Server => {
     await wireIfNeeded();
   });
 
+  // Register Swagger for OpenAPI documentation
+  app.register(fastifySwagger, {
+    openapi: {
+      openapi: '3.1.0',
+      info: {
+        title: 'Sanctum Directory API',
+        description: 'User directory and contact discovery service with privacy-preserving hashed email lookup',
+        version: '1.0.0',
+        contact: {
+          name: 'Sanctum Platform',
+        },
+      },
+      servers: [
+        { url: `http://localhost:${config.HTTP_PORT}`, description: 'Local development' },
+        { url: 'https://directory.sanctum.app', description: 'Production' },
+      ],
+      tags: [
+        { name: 'directory', description: 'User lookup and discovery' },
+        { name: 'health', description: 'Health and status checks' },
+      ],
+      components: {
+        securitySchemes: {
+          apiKeyAuth: {
+            type: 'apiKey',
+            in: 'header',
+            name: 'x-api-key',
+          },
+        },
+      },
+    },
+  });
+
+  // Register Swagger UI
+  app.register(fastifySwaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+    },
+    staticCSP: true,
+  });
+
   registerMetrics(app);
   registerErrorHandler(app);
   app.register(registerRoutes);
@@ -80,6 +124,7 @@ export const createServer = (): Server => {
       await app.register(fastifyCors, { origin: false });
       await wireIfNeeded();
       await app.listen({ host: config.HTTP_HOST, port: config.HTTP_PORT });
+      app.log.info(`📚 OpenAPI documentation available at http://${config.HTTP_HOST}:${config.HTTP_PORT}/docs`);
     },
     async stop() {
       await app.close();

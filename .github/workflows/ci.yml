@@ -25,6 +25,31 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: s3
+          DEBUG: 0
+          DATA_DIR: /tmp/localstack/data
+          DOCKER_HOST: unix:///var/run/docker.sock
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "awslocal s3 ls || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout code
@@ -129,10 +154,30 @@ jobs:
           
           echo "🎯 Environment ready for integration tests"
 
+      - name: Setup LocalStack S3 bucket
+        run: |
+          echo "🪣 Creating S3 test bucket in LocalStack..."
+          pip install awscli-local
+          awslocal s3 mb s3://test-bucket --endpoint-url=http://localhost:4566 || echo "Bucket may already exist"
+          awslocal s3 ls --endpoint-url=http://localhost:4566
+          echo "✅ LocalStack S3 ready"
+
       - name: Run tests
         run: pnpm test
         env:
           DATABASE_URL: postgresql://messaging:messaging@localhost:5433/messaging
+          REDIS_URL: redis://localhost:6379
+          STORAGE_TEST_REDIS_URL: redis://localhost:6379
+          S3_ENDPOINT: http://localhost:4566
+          S3_BUCKET: test-bucket
+          S3_ACCESS_KEY_ID: test
+          S3_SECRET_ACCESS_KEY: test
+          STORAGE_TEST_S3_ENDPOINT: http://localhost:4566
+          STORAGE_TEST_S3_REGION: us-east-1
+          STORAGE_TEST_S3_BUCKET: test-bucket
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: us-east-1
           NODE_ENV: test
           CI: true
 

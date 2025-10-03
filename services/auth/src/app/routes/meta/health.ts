@@ -7,7 +7,20 @@ export const registerHealthRoute = async (
   _context: { config: Config; container: Container }
 ) => {
   void _context;
-  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health', {
+    schema: {
+      description: 'Health check endpoint',
+      tags: ['health'],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['ok'], description: 'Health status' },
+          },
+        },
+      },
+    },
+  }, async () => ({ status: 'ok' }));
 };
 
 

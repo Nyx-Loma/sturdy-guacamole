@@ -1,0 +1,37 @@
+{
+  "name": "@sanctum/storage",
+  "version": "0.1.0",
+  "description": "Storage abstraction layer for Postgres, Redis Streams, and S3 with encryption support",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./adapters/*": {
+      "types": "./src/adapters/*.ts",
+      "default": "./src/adapters/*.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist coverage .vite .eslintcache"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
+    "ioredis": "^5.8.0",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "@vitest/coverage-v8": "^3.2.4",
+    "vitest": "^3.2.4"
+  }
+}
+

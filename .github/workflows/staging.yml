@@ -1,0 +1,207 @@
+name: Staging CI
+
+on:
+  push:
+    branches:
+      - staging
+  pull_request:
+    branches:
+      - staging
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+    
+    services:
+      messaging-db:
+        image: postgres:16
+        env:
+          POSTGRES_DB: messaging
+          POSTGRES_USER: messaging
+          POSTGRES_PASSWORD: messaging
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U messaging -d messaging"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: s3
+          DEBUG: 0
+          DATA_DIR: /tmp/localstack/data
+          DOCKER_HOST: unix:///var/run/docker.sock
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "awslocal s3 ls || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run database migrations
+        run: |
+          echo "🗄️  Running database migrations..."
+          for i in $(seq 1 10); do
+            PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c '\q' && break
+            echo "Postgres not ready yet, waiting 5s..."
+            sleep 5
+          done
+          
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/src/adapters/postgres/migrations/001_initial_schema.sql
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/src/adapters/postgres/migrations/20250203_message_outbox.sql
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/src/adapters/postgres/migrations/20250204_relax_dlq_uuid_constraint.sql
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/src/adapters/postgres/migrations/20250205_stage_3a_conversations_crud.sql
+          
+          if ! PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c '\q'; then
+            echo "❌ Database connection failed"
+            exit 1
+          fi
+          
+          TABLE_COUNT=$(PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'messaging';")
+          
+          if [ "$TABLE_COUNT" -gt 0 ]; then
+            echo "✅ Database schema ready ($TABLE_COUNT tables)"
+          else
+            echo "❌ Database schema missing!"
+            exit 1
+          fi
+
+      - name: Setup LocalStack S3 bucket
+        run: |
+          echo "🪣 Creating S3 test bucket..."
+          pip install awscli-local
+          awslocal s3 mb s3://test-bucket --endpoint-url=http://localhost:4566 || echo "Bucket may already exist"
+          awslocal s3 ls --endpoint-url=http://localhost:4566
+          echo "✅ LocalStack S3 ready"
+
+      - name: Run tests
+        run: pnpm test
+        env:
+          DATABASE_URL: postgresql://messaging:messaging@localhost:5433/messaging
+          REDIS_URL: redis://localhost:6379
+          STORAGE_TEST_REDIS_URL: redis://localhost:6379
+          S3_ENDPOINT: http://localhost:4566
+          S3_BUCKET: test-bucket
+          S3_ACCESS_KEY_ID: test
+          S3_SECRET_ACCESS_KEY: test
+          STORAGE_TEST_S3_ENDPOINT: http://localhost:4566
+          STORAGE_TEST_S3_REGION: us-east-1
+          STORAGE_TEST_S3_BUCKET: test-bucket
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: us-east-1
+          NODE_ENV: test
+          CI: true
+
+      - name: Check coverage
+        run: pnpm check:coverage
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: Nyx-Loma/sturdy-guacamole
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  build:
+    name: Build Services
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all services
+        run: pnpm run -w build
+
+      - name: Verify builds
+        run: |
+          echo "✅ Verifying service builds..."
+          test -d services/auth/dist || (echo "❌ Auth build failed" && exit 1)
+          test -d services/directory/dist || (echo "❌ Directory build failed" && exit 1)
+          test -d services/messaging/dist || (echo "❌ Messaging build failed" && exit 1)
+          echo "✅ All service builds verified"
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [test, security, build]
+    if: always()
+    
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.security.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
+            echo "❌ Staging CI failed - blocking merge"
+            exit 1
+          fi
+          echo "✅ Staging CI passed - ready for nightly smoke tests"
+

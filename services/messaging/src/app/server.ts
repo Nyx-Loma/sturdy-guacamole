@@ -1,0 +1,231 @@
+import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyCors from '@fastify/cors';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
+import { loadConfig } from '../config';
+import { registerErrorHandler } from './errorHandler';
+import { registerRateLimiter } from './rateLimiter';
+import { registerRoutes } from './routes';
+import { registerMetricsRoute, registerMetricsHooks } from './metrics';
+import fastifyWebsocket from '@fastify/websocket';
+import { WebSocketHub } from '@sanctum/transport';
+import { createMessagingContainer } from './serverContainer';
+import { createDispatcherRunner } from './stream/runLoop';
+
+export interface MessagingServer {
+  app: FastifyInstance;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
+export const createServer = async (): Promise<MessagingServer> => {
+  const config = loadConfig();
+  const app = Fastify({
+    logger: {
+      level: config.LOG_LEVEL,
+      redact: ['req.headers.authorization', 'req.headers.cookie']
+    },
+    disableRequestLogging: false,
+    bodyLimit: config.PAYLOAD_MAX_BYTES
+  });
+
+  app.decorate('config', config);
+
+  registerSecurityHeaders(app);
+  registerMetricsHooks(app);
+  await app.register(fastifyWebsocket);
+  registerRateLimiter(app, {
+    global: {
+      max: config.RATE_LIMIT_MAX,
+      intervalMs: config.RATE_LIMIT_INTERVAL_MS,
+      allowList: ['127.0.0.1', '::1']
+    },
+    routes: [
+      {
+        method: 'POST',
+        url: '/v1/messages',
+        scope: 'device',
+        max: config.RATE_LIMIT_PER_DEVICE,
+        intervalMs: config.RATE_LIMIT_INTERVAL_MS
+      },
+      {
+        method: 'POST',
+        url: '/v1/messages',
+        scope: 'session',
+        max: config.RATE_LIMIT_PER_SESSION,
+        intervalMs: config.RATE_LIMIT_INTERVAL_MS
+      },
+      {
+        method: 'POST',
+        url: '/v1/messages',
+        scope: 'user',
+        max: config.RATE_LIMIT_PER_USER,
+        intervalMs: config.RATE_LIMIT_INTERVAL_MS
+      }
+    ]
+  });
+  registerErrorHandler(app);
+  registerRoutes(app);
+  registerMetricsRoute(app);
+  
+  // Stage 3D: Apply authorization middleware AFTER routes are registered
+  // This will be wired in the start() method after container is initialized
+
+  const hub = new WebSocketHub({
+    heartbeatIntervalMs: config.WEBSOCKET_HEARTBEAT_INTERVAL_MS,
+    metricsRegistry: app.metricsRegistry,
+    authenticate: async ({ requestHeaders, clientId }) => {
+      const deviceIdHeader = requestHeaders['x-device-id'];
+      const sessionIdHeader = requestHeaders['x-session-id'];
+      const deviceId = Array.isArray(deviceIdHeader) ? deviceIdHeader[0] : deviceIdHeader;
+      const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
+      if (!deviceId || !sessionId) {
+        throw new Error('missing device or session headers');
+      }
+      return { accountId: clientId, deviceId };
+    },
+    loadResumeState: async () => null,
+    persistResumeState: async () => undefined,
+    dropResumeState: async () => undefined
+  });
+
+  const container = await createMessagingContainer(app, config, hub);
+
+  // Stage 3D: Apply authorization middleware (after container is created)
+  // Feature flag: PARTICIPANT_ENFORCEMENT_ENABLED (defaults to false for staged rollout)
+  // NOTE: Rate limiting (100 req/min per user) is implemented INSIDE requireParticipant
+  if (config.PARTICIPANT_ENFORCEMENT_ENABLED !== false) {
+    const { createRequireParticipant } = await import('./middleware/requireParticipant');
+    const requireParticipant = createRequireParticipant(app.participantCache);
+    // codeql[js/missing-rate-limiting] Rate limiting enforced inside requireParticipant middleware (lines 177-228)
+    app.addHook('preHandler', requireParticipant);
+    app.log.info('✅ Authorization middleware enabled (with rate limiting)');
+  } else {
+    app.log.info('authorization_middleware_disabled');
+  }
+
+  app.get('/ws/metrics', async (_, reply) => {
+    reply.header('content-type', 'text/plain');
+    const registry = hub.getMetricsRegistry();
+    return registry ? registry.metrics() : 'counter 0';
+  });
+
+  app.get('/ws', { websocket: true }, (connection, request) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const socket = 'socket' in connection ? connection.socket : (connection as any);
+    const clientId = request.id.toString();
+    void hub
+      .register(socket, clientId, request.headers)
+      .then(() => {
+        socket.on('message', (raw) => {
+          void hub.handleMessage(clientId, raw);
+        });
+      })
+      .catch((err) => {
+        app.log.error({ err, clientId }, 'websocket register failed');
+        socket.close(1011, 'registration_failed');
+      });
+  });
+
+  const dispatcherRunner = container.dispatcher
+    ? createDispatcherRunner(container.dispatcher, config, app.log)
+    : null;
+
+  // Register Swagger for OpenAPI documentation
+  await app.register(fastifySwagger, {
+    openapi: {
+      openapi: '3.1.0',
+      info: {
+        title: 'Sanctum Messaging API',
+        description: 'End-to-end encrypted messaging service with realtime delivery and conversation management',
+        version: '1.0.0',
+        contact: {
+          name: 'Sanctum Platform',
+        },
+      },
+      servers: [
+        { url: `http://localhost:${config.HTTP_PORT}`, description: 'Local development' },
+        { url: 'https://messages.sanctum.app', description: 'Production' },
+      ],
+      tags: [
+        { name: 'messages', description: 'Message sending and retrieval' },
+        { name: 'conversations', description: 'Conversation management' },
+        { name: 'participants', description: 'Participant management' },
+        { name: 'health', description: 'Health and status checks' },
+      ],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+          },
+        },
+      },
+    },
+  });
+
+  // Register Swagger UI
+  await app.register(fastifySwaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+    },
+    staticCSP: true,
+  });
+
+  return {
+    app,
+    async start() {
+      if (config.NODE_ENV !== 'production') {
+        await app.register(fastifyCors, { origin: false });
+      }
+      await container.init();
+      if (dispatcherRunner) {
+        await dispatcherRunner.start();
+      }
+      if (container.consumer) {
+        await container.consumer.start();
+      }
+      await app.listen({ host: config.HTTP_HOST, port: config.HTTP_PORT });
+      app.log.info(`📚 OpenAPI documentation available at http://${config.HTTP_HOST}:${config.HTTP_PORT}/docs`);
+    },
+    async stop() {
+      if (container.consumer) {
+        await container.consumer.stop();
+      }
+      if (dispatcherRunner) {
+        await dispatcherRunner.stop();
+      }
+      await app.close();
+    }
+  };
+};
+
+const registerSecurityHeaders = (app: FastifyInstance) => {
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    reply.header('Cross-Origin-Resource-Policy', 'same-origin');
+    if (!request.id) {
+      Object.defineProperty(request, 'id', {
+        value: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        writable: false,
+        configurable: true
+      });
+    }
+  });
+};
+
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  createServer()
+    .then((server) => server.start())
+    .catch((error) => {
+      console.error('Failed to start messaging service', error);
+      process.exit(1);
+    });
+}
+
+

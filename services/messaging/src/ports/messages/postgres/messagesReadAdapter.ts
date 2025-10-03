@@ -153,6 +153,7 @@ const mapRowToMessage = (row: MessageRow): Message => ({
   senderId: row.sender_id,
   type: row.type as Message['type'],
   status: row.status as Message['status'],
+  seq: row.seq,
   encryptedContent: row.encrypted_content,
   metadata: row.metadata ?? undefined,
   contentSize: row.content_size ?? undefined,
