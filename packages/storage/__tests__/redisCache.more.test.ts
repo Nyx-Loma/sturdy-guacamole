@@ -43,12 +43,11 @@ function createFakeRedisInstance(): FakeRedisInstance {
 }
 
 vi.mock("ioredis", () => {
-  const RedisConstructorMock = vi.fn(() => {
+  return { __esModule: true, default: vi.fn(() => {
     const instance = createFakeRedisInstance();
     redisInstances.push(instance);
     return instance;
-  });
-  return { __esModule: true, default: RedisConstructorMock };
+  }) };
 });
 
 import { RedisCache } from "../src/cache/redisCache";
@@ -60,7 +59,6 @@ function makeEnvelope<T>(value: T): CacheEnvelope<T> {
 describe("RedisCache more", () => {
   beforeEach(() => {
     redisInstances.length = 0;
-    RedisConstructorMock.mockClear();
   });
 
   it("delete publishes fan-out", async () => {
