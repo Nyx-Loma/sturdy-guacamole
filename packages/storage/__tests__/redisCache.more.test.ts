@@ -15,7 +15,7 @@ interface FakeRedisInstance {
 }
 
 const redisInstances: FakeRedisInstance[] = [];
-var RedisConstructorMock: ReturnType<typeof vi.fn>;
+let RedisConstructorMock: ReturnType<typeof vi.fn>;
 
 function createFakeRedisInstance(): FakeRedisInstance {
   const instance: FakeRedisInstance = {
