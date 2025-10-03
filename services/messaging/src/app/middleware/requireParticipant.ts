@@ -6,12 +6,70 @@ import { messagingMetrics } from '../../observability/metrics';
  * Authorization middleware for messaging routes
  * Stage 3D implementation
  * 
- * Enforces that the requesting user is an active participant in the conversation
- * Returns 403 NotAParticipantError if unauthorized
+ * Enforces:
+ * 1. Rate limiting (100 req/min per userId)
+ * 2. Authentication (userId must be present)
+ * 3. Authorization (userId must be a participant in the conversation)
+ * 
+ * Returns:
+ * - 429 if rate limit exceeded
+ * - 401 if authentication fails
+ * - 403 if not a participant
  * 
  * Usage:
  *   app.addHook('preHandler', requireParticipant(participantCache))
  */
+
+/**
+ * Simple in-memory rate limiter
+ * Scoped by userId + route
+ * Limit: 100 requests per minute per user per route
+ */
+interface RateLimitBucket {
+  count: number;
+  resetAt: number;
+}
+
+class RateLimiter {
+  private buckets = new Map<string, RateLimitBucket>();
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
+
+  constructor(maxRequests = 100, windowMs = 60_000) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+  }
+
+  check(key: string): { allowed: boolean; retryAfterMs?: number } {
+    const now = Date.now();
+    const bucket = this.buckets.get(key);
+
+    // No bucket or expired bucket - allow and create new
+    if (!bucket || bucket.resetAt <= now) {
+      this.buckets.set(key, { count: 1, resetAt: now + this.windowMs });
+      return { allowed: true };
+    }
+
+    // Bucket exists and not expired
+    if (bucket.count >= this.maxRequests) {
+      return { allowed: false, retryAfterMs: Math.max(bucket.resetAt - now, 0) };
+    }
+
+    // Increment and allow
+    bucket.count += 1;
+    return { allowed: true };
+  }
+
+  // Cleanup expired buckets periodically
+  cleanup(): void {
+    const now = Date.now();
+    for (const [key, bucket] of this.buckets.entries()) {
+      if (bucket.resetAt <= now) {
+        this.buckets.delete(key);
+      }
+    }
+  }
+}
 
 export interface AuthContext {
   userId: string;
@@ -116,6 +174,17 @@ async function isParticipant(
  * Create authorization middleware factory
  */
 export function createRequireParticipant(cache: ParticipantCache) {
+  // Create rate limiter instance (shared across all requests)
+  const rateLimiter = new RateLimiter(100, 60_000); // 100 req/min
+  
+  // Cleanup expired buckets every 5 minutes
+  const cleanupInterval = setInterval(() => rateLimiter.cleanup(), 5 * 60_000);
+  
+  // Cleanup on process exit (for tests/graceful shutdown)
+  if (typeof process !== 'undefined') {
+    process.once('beforeExit', () => clearInterval(cleanupInterval));
+  }
+
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     // Skip authorization for health checks and public routes
     const publicRoutes = ['/health', '/metrics', '/v1/conversations']; // GET /v1/conversations (list) is public
@@ -128,7 +197,7 @@ export function createRequireParticipant(cache: ParticipantCache) {
       return;
     }
 
-    // Extract auth context
+    // 1. EXTRACT AUTH CONTEXT (needed for both rate limiting and authorization)
     const authContext = extractAuthContext(request);
     if (!authContext) {
       messagingMetrics.authenticationFailures.inc();
@@ -139,21 +208,41 @@ export function createRequireParticipant(cache: ParticipantCache) {
       });
     }
 
-    // Extract conversationId
+    // 2. RATE LIMIT CHECK (before any expensive operations)
+    const route = (request as { routerPath?: string }).routerPath || request.url;
+    const rateLimitKey = `${authContext.userId}:${route}`;
+    const rateLimitResult = rateLimiter.check(rateLimitKey);
+    
+    if (!rateLimitResult.allowed) {
+      messagingMetrics.rateLimitExceeded.labels({
+        route,
+        scope: 'userId'
+      }).inc();
+      
+      return reply.code(429).send({
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many requests. Please slow down.',
+        retryAfterMs: rateLimitResult.retryAfterMs,
+        requestId: request.id,
+      });
+    }
+
+    // 3. EXTRACT CONVERSATION ID
     const conversationId = extractConversationId(request);
     if (!conversationId) {
-      // No conversationId in route - skip check
+      // No conversationId in route - skip authorization check
       // This handles routes that don't involve conversations
       return;
     }
 
-    // Check if user is a participant
+    // 4. AUTHORIZATION CHECK (participant verification)
     const authorized = await isParticipant(conversationId, authContext.userId, cache);
     
     if (!authorized) {
       // User is NOT a participant - deny access
+      const denyRoute = (request as { routerPath?: string }).routerPath || request.url;
       messagingMetrics.securityDeniedTotal.labels({
-        route: request.routerPath || request.url,
+        route: denyRoute,
         reason: 'not_participant'
       }).inc();
       

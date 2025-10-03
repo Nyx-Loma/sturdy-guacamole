@@ -246,6 +246,13 @@ const authenticationFailures = new Counter({
   registers: [metricsRegistry]
 });
 
+const rateLimitExceeded = new Counter({
+  name: 'messaging_rate_limit_exceeded_total',
+  help: 'Rate limit exceeded responses (429 errors)',
+  labelNames: ['route', 'scope'],
+  registers: [metricsRegistry]
+});
+
 metricsRegistry.registerMetric(conversationsCreatedTotal);
 metricsRegistry.registerMetric(conversationsDeletedTotal);
 metricsRegistry.registerMetric(conversationVersionConflicts);
@@ -255,6 +262,7 @@ metricsRegistry.registerMetric(participantCacheHits);
 metricsRegistry.registerMetric(participantCacheMisses);
 metricsRegistry.registerMetric(securityDeniedTotal);
 metricsRegistry.registerMetric(authenticationFailures);
+metricsRegistry.registerMetric(rateLimitExceeded);
 
 export const messagingMetrics = {
   requestCounter,
@@ -297,6 +305,7 @@ export const messagingMetrics = {
   // Stage 3D
   securityDeniedTotal,
   authenticationFailures,
+  rateLimitExceeded,
 };
 
 
