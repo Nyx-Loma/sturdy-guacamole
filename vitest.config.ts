@@ -21,9 +21,38 @@ export default defineConfig({
     isolate: true,
     setupFiles: ['./vitest.global.setup.ts'],
     testTimeout: 15_000,
-    hookTimeout: 30_000
+    hookTimeout: 30_000,
     // Use Vitest's default include: **/*.{test,spec}.?(c|m)[jt]s?(x)
     // Shards are driven via --dir flag in the sequential runner
+    projects: [
+      {
+        test: {
+          name: 'unit',
+          include: [
+            'packages/**/__tests__/**/*.test.ts',
+            'packages/**/__tests__/**/*.spec.ts',
+            'services/**/__tests__/**/*.test.ts',
+            'services/**/__tests__/**/*.spec.ts',
+            'services/**/tests/unit/**/*.test.ts',
+            'services/**/tests/unit/**/*.spec.ts',
+            'services/**/src/tests/unit/**/*.test.ts',
+            'services/**/src/tests/unit/**/*.spec.ts',
+            'tests/**/*.test.ts',
+            'tests/**/*.spec.ts'
+          ],
+          exclude: [
+            '**/node_modules/**',
+            '**/dist/**',
+            '**/*.integration.test.ts',
+            '**/*.e2e.test.ts',
+            '**/tests/integration/**',
+            '**/tests/e2e/**',
+            '**/src/tests/integration/**',
+            '**/src/tests/e2e/**'
+          ]
+        }
+      }
+    ]
   }
 });
 
