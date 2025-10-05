@@ -71,6 +71,7 @@ export const createMessagingContainer = async (
   };
 
   // Cleanup interval on shutdown
+  // lgtm[js/missing-rate-limiting] - Shutdown lifecycle hook, not a route handler
   app.addHook('onClose', async () => {
     clearInterval(poolMetricsInterval);
   });
@@ -250,7 +251,7 @@ export const createMessagingContainer = async (
     }
     
     // Stop participant cache on shutdown
-    // codeql[js/missing-rate-limiting] This is a shutdown hook, not a route handler - rate limiting not applicable
+    // lgtm[js/missing-rate-limiting] - Shutdown lifecycle hook, not a route handler
     app.addHook('onClose', async () => {
       await participantCache.stop();
       await redisSubscriber.quit();

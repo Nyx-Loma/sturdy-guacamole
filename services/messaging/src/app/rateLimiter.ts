@@ -100,6 +100,7 @@ export const registerRateLimiter = (app: FastifyInstance, options: RateLimiterOp
     }
   });
 
+  // lgtm[js/missing-rate-limiting] - Shutdown lifecycle hook, not a route handler
   app.addHook('onClose', async () => {
     globalLimiter.clear();
     for (const route of perRoute) {
