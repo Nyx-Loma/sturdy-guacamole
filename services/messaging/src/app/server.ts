@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { loadConfig } from '../config';
-import { registerMetricsRoute } from './metrics';
 import { createMessagingServer } from './buildServer';
 
 export interface MessagingServer {
@@ -17,7 +16,7 @@ export const createServer = async (): Promise<MessagingServer> => {
   const { app, container, dispatcherRunner } = await createMessagingServer({ config });
 
   registerSecurityHeaders(app);
-  registerMetricsRoute(app);
+  // Note: Metrics route is registered in buildServer.ts
 
   // Readiness probe - flips to false during shutdown
   app.get('/ready', async () => {

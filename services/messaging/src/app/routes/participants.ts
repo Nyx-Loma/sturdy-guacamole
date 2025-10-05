@@ -43,12 +43,24 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
     return { id: auth.userId, role: 'member' as const, deviceId: auth.deviceId, sessionId: auth.sessionId };
   };
 
-  const mapParticipant = (participant: { userId: string; role: string; joinedAt: string; leftAt: string | null }) => ({
+  const mapParticipant = (participant: { userId: string; role: string; joinedAt: string; leftAt?: string | null }) => ({
     userId: participant.userId,
     role: participant.role === 'owner' || participant.role === 'admin' ? 'admin' : 'member',
     joinedAt: participant.joinedAt,
-    leftAt: participant.leftAt,
+    leftAt: participant.leftAt ?? null,
   });
+
+  const loadParticipants = async (conversationId: string) => {
+    const conversation = await app.conversationsReadPort.findById(conversationId);
+    if (!conversation) return null;
+    return conversation.participants;
+  };
+
+  const findParticipant = async (conversationId: string, userId: string) => {
+    const participants = await loadParticipants(conversationId);
+    if (!participants) return null;
+    return participants.find((participant) => participant.userId === userId && !participant.leftAt) ?? null;
+  };
 
   // ============================================================================
   // POST /v1/conversations/:conversationId/participants - Add participant
@@ -77,8 +89,8 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
 
       const actor = actorFromRequest(request);
 
-      const existing = await app.conversationsReadPort.findById(params.conversationId);
-      if (!existing) {
+      const existingParticipants = await loadParticipants(params.conversationId);
+      if (!existingParticipants) {
         return reply.code(404).send({
           code: 'CONVERSATION_NOT_FOUND',
           message: 'Conversation not found',
@@ -86,7 +98,7 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
         });
       }
 
-      const alreadyParticipant = existing.participants.find((participant) => participant.userId === body.userId && !participant.leftAt);
+      const alreadyParticipant = existingParticipants.find((participant) => participant.userId === body.userId && !participant.leftAt);
       if (alreadyParticipant) {
         return reply.code(409).send({
           code: 'ALREADY_PARTICIPANT',
@@ -95,15 +107,13 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
         });
       }
 
-      await app.conversationsWritePort.updateParticipants(
+      await app.conversationService.addParticipants(
         params.conversationId,
-        { add: [{ userId: body.userId, role: body.role }] },
+        [{ userId: body.userId, role: body.role }],
         actor,
       );
 
       await app.participantCache.invalidate(params.conversationId);
-
-      // Increment metrics
       app.messagingMetrics.participantsAddedTotal.inc({ role: body.role });
 
       request.log.info({
@@ -112,15 +122,19 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
         role: body.role,
       }, 'participant_added');
 
-      const joinedAt = new Date().toISOString();
+      const page = await app.conversationService.listParticipants(params.conversationId, {
+        limit: 1,
+        includeLeft: true,
+      });
+      const participant = page.items.find((p) => p.userId === body.userId) ?? {
+        userId: body.userId,
+        role: body.role,
+        joinedAt: new Date().toISOString(),
+        leftAt: undefined,
+      };
 
       const response: AddParticipantResponse = {
-        participant: mapParticipant({
-          userId: body.userId,
-          role: body.role,
-          joinedAt,
-          leftAt: null,
-        }),
+        participant: mapParticipant(participant),
       };
 
       return reply.code(201).send(response);
@@ -150,16 +164,7 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
 
       const actor = actorFromRequest(request);
 
-      const existing = await app.conversationsReadPort.findById(params.conversationId);
-      if (!existing) {
-        return reply.code(404).send({
-          code: 'CONVERSATION_NOT_FOUND',
-          message: 'Conversation not found',
-          requestId: request.id,
-        });
-      }
-
-      const target = existing.participants.find((participant) => participant.userId === params.userId && !participant.leftAt);
+      const target = await findParticipant(params.conversationId, params.userId);
       if (!target) {
         return reply.code(404).send({
           code: 'PARTICIPANT_NOT_FOUND',
@@ -168,17 +173,13 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
         });
       }
 
-      const leftAt = new Date().toISOString();
-
-      await app.conversationsWritePort.updateParticipants(
+      await app.conversationService.removeParticipant(
         params.conversationId,
-        { remove: [params.userId] },
+        params.userId,
         actor,
       );
 
       await app.participantCache.invalidate(params.conversationId);
-
-      // Increment metrics
       app.messagingMetrics.participantsRemovedTotal.inc({ role: target.role });
 
       request.log.info({
@@ -187,9 +188,12 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
         role: target.role,
       }, 'participant_removed');
 
+      const refreshedParticipants = await loadParticipants(params.conversationId);
+      const removedParticipant = refreshedParticipants?.find((p) => p.userId === params.userId);
+
       const response: RemoveParticipantResponse = {
         removed: true,
-        leftAt,
+        leftAt: removedParticipant?.leftAt ?? new Date().toISOString(),
       };
 
       return reply.code(200).send(response);
@@ -235,8 +239,6 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
       if (query.cursor) {
         try {
           const decoded = parseCursor(query.cursor);
-          query.after = decoded.after ?? query.after;
-          query.before = decoded.before ?? query.before;
           query.cursor = decoded.token ?? undefined;
         } catch {
           return reply.code(400).send({

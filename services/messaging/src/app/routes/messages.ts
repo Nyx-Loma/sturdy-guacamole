@@ -11,7 +11,6 @@ import {
   MarkReadRequestSchema,
   MarkReadResponseSchema
 } from './schemas/messages';
-import { messagingMetrics } from '../../observability/metrics';
 import { PayloadValidationError } from '../../domain/errors';
 
 export const registerMessageRoutes = async (app: FastifyInstance) => {
@@ -83,11 +82,11 @@ export const registerMessageRoutes = async (app: FastifyInstance) => {
     enforcePayloadLimits(params.body.payloadSizeBytes, app);
     const encryptedBytes = Buffer.from(params.body.encryptedContent, 'base64');
     if (encryptedBytes.toString('base64') !== params.body.encryptedContent) {
-      messagingMetrics.payloadRejects.inc({ reason: 'base64' });
+      request.server.messagingMetrics.payloadRejects.inc({ reason: 'base64' });
       throw new PayloadValidationError('encryptedContent is not valid base64');
     }
     if (encryptedBytes.length !== params.body.payloadSizeBytes) {
-      messagingMetrics.payloadRejects.inc({ reason: 'size_mismatch' });
+      request.server.messagingMetrics.payloadRejects.inc({ reason: 'size_mismatch' });
       throw new PayloadValidationError('payloadSizeBytes mismatch with encrypted content length');
     }
     const fingerprint = app.config.ENABLE_PAYLOAD_FINGERPRINT ? createFingerprint(encryptedBytes) : undefined;
@@ -119,7 +118,7 @@ export const registerMessageRoutes = async (app: FastifyInstance) => {
     const message = await app.messagesReadPort.findById(firstMessageId);
     const isReplay = firstMessageId !== proposedId;
 
-    metricsForSend(message?.contentSize ?? 0, isReplay);
+    metricsForSend(message?.contentSize ?? 0, isReplay, app);
 
     if (!message) {
       throw new PayloadValidationError('Failed to load persisted message', 500);
@@ -202,7 +201,7 @@ export const registerMessageRoutes = async (app: FastifyInstance) => {
 
     await app.messageService.markRead(body.messageIds, body.readAt, actor);
 
-    messagingMetrics.markReadUpdates.inc(body.messageIds.length);
+    request.server.messagingMetrics.markReadUpdates.inc(body.messageIds.length);
 
     const response = MarkReadResponseSchema.parse({ updated: body.messageIds.length });
     reply.send(response);
@@ -213,19 +212,19 @@ const enforcePayloadLimits = (size: number | undefined, app: FastifyInstance) =>
   if (!size) return;
   const max = loadPayloadCap(app);
   if (size > max) {
-    messagingMetrics.payloadRejects.inc({ reason: 'size' });
+    app.messagingMetrics.payloadRejects.inc({ reason: 'size' });
     throw new PayloadValidationError(`payload exceeds maximum of ${max} bytes`, 413);
   }
 };
 
 const loadPayloadCap = (app: FastifyInstance): number => app.config.PAYLOAD_MAX_BYTES;
 
-const metricsForSend = (size: number, replay: boolean) => {
+const metricsForSend = (size: number, replay: boolean, app: FastifyInstance) => {
   if (size > 0) {
-    messagingMetrics.messageSizeBytes.observe(size);
+    app.messagingMetrics.messageSizeBytes.observe(size);
   }
   if (replay) {
-    messagingMetrics.idempotencyHits.inc();
+    app.messagingMetrics.idempotencyHits.inc();
   }
 };
 

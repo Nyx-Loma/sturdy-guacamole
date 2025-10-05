@@ -1,5 +1,6 @@
 import type { Conversation, Participant } from '../../../domain/types/conversation.types';
 import type { ConversationFilter, PageResult, Uuid } from '../../shared/types';
+import type { ParticipantListOptions } from '../conversationsReadPort';
 import type { SqlClient } from '../../shared/sql';
 import type { ConversationsReadPort } from '../conversationsReadPort';
 
@@ -41,6 +42,18 @@ export const createPostgresConversationsReadAdapter = ({ sql }: ConversationsRea
       const nextCursor = items.length === limit ? items[items.length - 1].id : undefined;
 
       return { items, nextCursor } satisfies PageResult<Conversation>;
+    },
+
+    async listParticipants(id, options) {
+      const conversation = await getConversation(sql, id);
+      if (!conversation) return null;
+      const result = await listParticipants(sql, id, options);
+      const pageSize = Math.min(options?.limit ?? 50, 100);
+      const hasMore = result.length > pageSize;
+      const items = hasMore ? result.slice(0, pageSize) : result;
+      const nextCursor = hasMore ? items[items.length - 1]?.joinedAt : undefined;
+
+      return { items, nextCursor } satisfies PageResult<Participant>;
     }
   };
 };
@@ -116,16 +129,37 @@ const getConversation = async (sql: SqlClient, id: Uuid) => {
   return result.rows[0] ? mapConversationRow(result.rows[0]) : null;
 };
 
-const listParticipants = async (sql: SqlClient, conversationId: Uuid) => {
-  const result = await sql.query<ParticipantRow>(
-    `
+const listParticipants = async (sql: SqlClient, conversationId: Uuid, options: ParticipantListOptions = {}) => {
+  const { sqlString, params } = buildParticipantsQuery(conversationId, options);
+  const result = await sql.query<ParticipantRow>(sqlString, params);
+  return result.rows.map(mapParticipantRow);
+};
+
+const buildParticipantsQuery = (conversationId: Uuid, options: ParticipantListOptions = {}) => {
+  const limit = Math.min(options.limit ?? 50, 100) + 1;
+  const params: unknown[] = [conversationId, limit];
+  const conditions = ['conversation_id = $1'];
+
+  if (!options.includeLeft) {
+    conditions.push('left_at is null');
+  }
+
+  if (options.cursor) {
+    params.push(options.cursor);
+    conditions.push('joined_at > $' + params.length);
+  }
+
+  const whereClause = conditions.length ? `where ${conditions.join(' and ')}` : '';
+
+  const sqlString = `
     select *
     from messaging.conversation_participants
-    where conversation_id = $1
-  `,
-    [conversationId]
-  );
-  return result.rows.map(mapParticipantRow);
+    ${whereClause}
+    order by joined_at asc
+    limit $2
+  `;
+
+  return { sqlString, params };
 };
 
 type ConversationRow = {

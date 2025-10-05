@@ -20,7 +20,7 @@ import type {
   ConversationsWritePort,
   ParticipantChange
 } from '../../ports/conversations/conversationsWritePort';
-import type { Actor, IsoDateTime, Uuid } from '../../ports/shared/types';
+import type { Actor, IsoDateTime, PageResult, Uuid } from '../../ports/shared/types';
 
 export type ConversationServiceDeps = {
   read: ConversationsReadPort;
@@ -38,6 +38,7 @@ export type ConversationService = {
   updateMetadata(conversationId: Uuid, metadata: Partial<ConversationMetadata>, actor: Actor): Promise<void>;
   markRead(conversationId: Uuid, actorId: Uuid, at?: IsoDateTime): Promise<void>;
   softDelete(conversationId: Uuid, at?: IsoDateTime, actor?: Actor): Promise<void>;
+  listParticipants(conversationId: Uuid, options?: { limit?: number; cursor?: string; includeLeft?: boolean }): Promise<PageResult<Participant>>;
 };
 
 const DEFAULT_NOW = () => new Date();
@@ -119,6 +120,33 @@ const publishEvents = async (events: ConversationsEventsPort, entries: Conversat
   }
 };
 
+const paginateParticipants = (
+  participants: Participant[],
+  options?: { limit?: number; cursor?: string; includeLeft?: boolean }
+) => {
+  const limit = Math.min(options?.limit ?? 50, 100);
+  const filtered = options?.includeLeft === false
+    ? participants.filter(participant => !participant.leftAt)
+    : participants;
+
+  const sorted = filtered
+    .slice()
+    .sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
+
+  let startIndex = 0;
+  if (options?.cursor) {
+    const cursorIndex = sorted.findIndex((participant) => participant.joinedAt === options.cursor);
+    if (cursorIndex >= 0) {
+      startIndex = cursorIndex + 1;
+    }
+  }
+
+  const items = sorted.slice(startIndex, startIndex + limit);
+  const nextCursor = startIndex + limit < sorted.length ? items[items.length - 1]?.joinedAt : undefined;
+
+  return { items, nextCursor } satisfies PageResult<Participant>;
+};
+
 export const createConversationService = ({
   read,
   write,
@@ -192,6 +220,11 @@ export const createConversationService = ({
       const actorContext = actor ?? { id: 'system', role: 'owner' as ParticipantRole };
       await write.softDelete(conversationId, timestamp, actorContext);
       await events.publish({ kind: 'ConversationSoftDeleted', id: conversationId });
+    },
+
+    async listParticipants(conversationId, options) {
+      const conversation = await ensureConversation(read, conversationId);
+      return paginateParticipants(conversation.participants, options);
     }
   };
 };

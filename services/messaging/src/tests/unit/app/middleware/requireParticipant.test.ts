@@ -76,8 +76,14 @@ describe('requireParticipant middleware', () => {
   });
 
   it('createRequireAdmin allows participant', async () => {
-    const cache = { get: vi.fn().mockResolvedValue(['user-1']) };
-    const requireAdmin = createRequireAdmin(cache as any);
+    const cache = { 
+      get: vi.fn().mockResolvedValue([]),
+      set: vi.fn().mockResolvedValue(undefined)
+    };
+    const participantsReadPort = {
+      list: vi.fn().mockResolvedValue([{ userId: 'user-1', role: 'admin', leftAt: null }])
+    };
+    const requireAdmin = createRequireAdmin(cache as any, participantsReadPort);
     app.post('/admin', { preHandler: requireAdmin }, async () => ({ ok: true }));
     await app.ready();
     const res = await app.inject({ method: 'POST', url: '/admin', payload: { conversationId: 'conv-1' } });

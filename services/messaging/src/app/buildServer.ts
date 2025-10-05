@@ -29,9 +29,26 @@ export const buildServer = async ({ config = loadConfig(), enableSwagger = true 
     bodyLimit: config.PAYLOAD_MAX_BYTES
   });
 
+  // Create per-app metrics instance FIRST (before any other initialization)
+  const { createMessagingMetrics } = await import('../observability/metrics');
+  const prefix = process.env.VITEST_WORKER_ID ? `w${process.env.VITEST_WORKER_ID}_` : 'messaging_';
+  const metrics = createMessagingMetrics({ defaultPrefix: prefix });
+
+  // Decorate so every module can read app.messagingMetrics
+  app.decorate('messagingMetrics', metrics);
   app.decorate('config', config);
 
-  registerMetricsHooks(app);
+  // Register metrics endpoint
+  app.get('/metrics', async (_req, reply) => {
+    if (config.NODE_ENV === 'production') {
+      return reply.code(404).send();
+    }
+    reply.type('text/plain').send(await metrics.registry.metrics());
+  });
+
+  // Register metrics hooks for HTTP requests
+  registerMetricsHooks(app, metrics);
+
   await app.register(registerCors, { config });
   await app.register(fastifyWebsocket);
   
@@ -155,13 +172,16 @@ export const buildServer = async ({ config = loadConfig(), enableSwagger = true 
 export const createMessagingServer = async ({ config = loadConfig(), enableSwagger = true }: BuildServerOptions = {}) => {
   const app = await buildServer({ config, enableSwagger });
 
+  // Metrics already created and decorated in buildServer
+  const metrics = app.messagingMetrics;
+
   let resumeStoreLoad = async () => null;
   let resumeStorePersist = async () => undefined;
   let resumeStoreDrop = async () => undefined;
 
   const hub = new WebSocketHub({
     heartbeatIntervalMs: config.WEBSOCKET_HEARTBEAT_INTERVAL_MS,
-    metricsRegistry: app.metricsRegistry,
+    metricsRegistry: metrics.registry,
     authenticate: async ({ requestHeaders }) => {
       const authHeader = requestHeaders.authorization;
       if (!authHeader || Array.isArray(authHeader)) {
@@ -183,7 +203,7 @@ export const createMessagingServer = async ({ config = loadConfig(), enableSwagg
       const requireAuth = createRequireAuth({ config });
       await requireAuth(fakeRequest, fakeReply);
 
-      const auth = (fakeRequest as { auth?: import('./middleware/auth').AuthContext }).auth;
+      const auth = (fakeRequest as { auth?: import('../domain/types/auth.types').AuthContext }).auth;
       if (!auth) {
         throw new Error('authentication failed');
       }
@@ -196,6 +216,7 @@ export const createMessagingServer = async ({ config = loadConfig(), enableSwagg
   });
 
   const container = await createMessagingContainer(app, config, hub);
+  
   const resumeStore = createRedisResumeStore({
     redis: container.redis,
     keyPrefix: `${config.REDIS_STREAM_PREFIX}:resume:`,

@@ -70,6 +70,8 @@ export class ParticipantCache {
    * Stop listening
    */
   async stop(): Promise<void> {
+    // Remove listener before unsubscribing to prevent leaks
+    this.subscriberRedis.removeAllListeners('message');
     await this.subscriberRedis.unsubscribe(this.invalidationChannel);
     this.memoryCache.clear();
     this.logger.info('participant_cache_stopped');

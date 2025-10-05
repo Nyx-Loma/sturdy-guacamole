@@ -2,7 +2,7 @@ import type { Redis } from 'ioredis';
 import type { FastifyBaseLogger } from 'fastify';
 import type { WebSocketHub } from '@sanctum/transport';
 import { randomUUID } from 'node:crypto';
-import { messagingMetrics } from '../../observability/metrics';
+import type { MessagingMetrics } from '../../observability/metrics';
 import { BoundedQueue } from '../../ws/backpressure';
 import { createCircuitBreaker } from '../../infra/circuitbreakers';
 
@@ -29,6 +29,7 @@ export interface ConsumerOptions {
   stream: string;
   group: string;
   consumerName: string;
+  metrics: MessagingMetrics;
   batchSize?: number;
   blockMs?: number;
   maxRetries?: number;
@@ -84,11 +85,11 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
     { timeoutMs: 2000, failureThreshold: 3, halfOpenAfterMs: 5000 },
     {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+      breakerOpened: { inc: (labels) => opts.metrics.breakerOpened.inc(labels as any) },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+      breakerHalfOpen: { inc: (labels) => opts.metrics.breakerHalfOpen.inc(labels as any) },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+      breakerClosed: { inc: (labels) => opts.metrics.breakerClosed.inc(labels as any) },
     }
   );
 
@@ -158,9 +159,9 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
         maxQueue: 100,
         dropPolicy: 'drop_old',
         metrics: {
-          wsQueueDepth: { set: (v: number) => messagingMetrics.wsQueueDepth.set(v) },
+          wsQueueDepth: { set: (v: number) => opts.metrics.wsQueueDepth.set(v) },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          wsDroppedTotal: { inc: (labels?: Record<string, unknown>) => messagingMetrics.wsDroppedTotal.inc(labels as any) },
+          wsDroppedTotal: { inc: (labels?: Record<string, unknown>) => opts.metrics.wsDroppedTotal.inc(labels as any) },
         },
       });
       convoQueues.set(conversationId, q);
@@ -171,7 +172,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
   const broadcastEvent = async (event: StreamEvent) => {
     // Idempotency check
     if (seenMessageIds.has(event.messageId)) {
-      messagingMetrics.consumerDedupeSkipsTotal.inc();
+      opts.metrics.consumerDedupeSkipsTotal.inc();
       log.debug({ messageId: event.messageId }, 'duplicate_message_skipped');
       return;
     }
@@ -211,7 +212,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
       const accepted = q.push(event);
       if (!accepted) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        messagingMetrics.wsDroppedTotal.inc({ reason: 'new' } as any);
+        opts.metrics.wsDroppedTotal.inc({ reason: 'new' } as any);
       }
       q.drain(() => {
         opts.hub.broadcast(envelope);
@@ -219,7 +220,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
         return true;
       });
       seenMessageIds.add(event.messageId);
-      messagingMetrics.consumerDeliveredTotal.inc();
+      opts.metrics.consumerDeliveredTotal.inc();
       
       log.info({
         messageId: event.messageId,
@@ -309,7 +310,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
           
           // ACK to unblock the stream
           acked.push(pending.redisId);
-          messagingMetrics.consumerFailuresTotal.labels({ reason: 'permanent_error' }).inc();
+          opts.metrics.consumerFailuresTotal.labels({ reason: 'permanent_error' }).inc();
           
           // Continue processing next message
           continue;
@@ -320,7 +321,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
             messageId: pending.event.messageId,
             conversationId,
           }, 'transient_broadcast_failure_will_retry');
-          messagingMetrics.consumerFailuresTotal.labels({ reason: 'transient_error' }).inc();
+          opts.metrics.consumerFailuresTotal.labels({ reason: 'transient_error' }).inc();
           
           // Don't ACK - leave in PEL for retry
           break;
@@ -332,7 +333,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
     if (acked.length > 0) {
       try {
         await opts.redis.xack(opts.stream, opts.group, ...acked);
-        messagingMetrics.consumerAckTotal.inc(acked.length);
+        opts.metrics.consumerAckTotal.inc(acked.length);
         log.info({ count: acked.length, conversationId }, 'messages_acked');
       } catch (error) {
         log.error({ err: error, ids: acked }, 'xack_failed');
@@ -414,7 +415,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
         for (const [redisId, fields] of entries) {
           const event = parseEvent(fields);
           if (!event) {
-            messagingMetrics.consumerFailuresTotal.labels({ reason: 'parse_error' }).inc();
+            opts.metrics.consumerFailuresTotal.labels({ reason: 'parse_error' }).inc();
             // ACK malformed messages to avoid blocking the stream
             // Extract whatever IDs we can for DLQ, even if validation failed
             const partialEvent = extractPartialEvent(fields, redisId);
@@ -428,7 +429,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
           buffer.push({ redisId, event });
           conversationBuffers.set(event.conversationId, buffer);
           
-          messagingMetrics.consumerFetchTotal.labels({ status: 'ok' }).inc();
+          opts.metrics.consumerFetchTotal.labels({ status: 'ok' }).inc();
         }
 
         // Process all conversation buffers
@@ -441,7 +442,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
         }
 
       } catch (error) {
-        messagingMetrics.consumerFetchTotal.labels({ status: 'err' }).inc();
+        opts.metrics.consumerFetchTotal.labels({ status: 'err' }).inc();
         log.error({ err: error }, 'consumer_read_loop_error');
         
         // Backoff on error

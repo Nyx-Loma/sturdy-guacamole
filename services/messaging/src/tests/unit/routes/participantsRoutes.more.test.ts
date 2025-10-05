@@ -27,27 +27,17 @@ describe('participant routes - edge cases', () => {
   it('adds participant happy path', async () => {
     const app = await createTestMessagingServer();
     try {
-      app.conversationsReadPort.findById.mockResolvedValueOnce({
-        id: conversationId,
-        type: 'group',
-        name: null,
-        description: null,
-        avatarUrl: null,
-        metadata: {},
-        settings: {
-          whoCanAddParticipants: 'admin',
-          whoCanSendMessages: 'member',
-          messageRetentionDays: 0,
-          e2eeEnabled: true,
-          maxParticipants: 10,
-        },
-        participants: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        version: 1,
-        deletedAt: null,
+      const participantSnapshot = {
+        userId: userB,
+        role: 'member',
+        joinedAt: '2025-09-01T00:00:00.000Z',
+        leftAt: undefined,
+      };
+      app.conversationService.addParticipants.mockResolvedValueOnce(undefined);
+      app.conversationService.listParticipants.mockResolvedValueOnce({
+        items: [participantSnapshot],
+        nextCursor: undefined,
       });
-      app.conversationsWritePort.updateParticipants.mockResolvedValueOnce(undefined);
       const res = await app.inject({
         method: 'POST',
         url: `/v1/conversations/${conversationId}/participants`,
@@ -55,9 +45,14 @@ describe('participant routes - edge cases', () => {
         payload: { userId: userB, role: 'member' },
       });
       expect(res.statusCode).toBe(201);
-      expect(res.json().participant.userId).toBe(userB);
+      expect(res.json().participant).toEqual({
+        userId: participantSnapshot.userId,
+        role: 'member',
+        joinedAt: participantSnapshot.joinedAt,
+        leftAt: null,
+      });
       expect(app.messagingMetrics.participantsAddedTotal.inc).toHaveBeenCalled();
-      expect(app.conversationsWritePort.updateParticipants).toHaveBeenCalled();
+      expect(app.conversationService.addParticipants).toHaveBeenCalled();
     } finally {
       await app.close();
     }
@@ -80,18 +75,6 @@ describe('participant routes - edge cases', () => {
       const now = new Date().toISOString();
       app.conversationsReadPort.findById.mockResolvedValueOnce({
         id: conversationId,
-        type: 'group',
-        name: null,
-        description: null,
-        avatarUrl: null,
-        metadata: {},
-        settings: {
-          whoCanAddParticipants: 'admin',
-          whoCanSendMessages: 'member',
-          messageRetentionDays: 0,
-          e2eeEnabled: true,
-          maxParticipants: 10,
-        },
         participants: [
           {
             userId: userA,
@@ -100,17 +83,13 @@ describe('participant routes - edge cases', () => {
             leftAt: null,
           },
         ],
-        createdAt: now,
-        updatedAt: now,
-        version: 1,
-        deletedAt: null,
       });
-      app.conversationsWritePort.updateParticipants.mockResolvedValueOnce(undefined);
+      app.conversationService.removeParticipant.mockResolvedValueOnce(undefined);
       const res = await app.inject({ method: 'DELETE', url: `/v1/conversations/${conversationId}/participants/${userA}`, headers: withAuth() });
       expect(res.statusCode).toBe(200);
       expect(res.json().removed).toBe(true);
-      expect(app.messagingMetrics.participantsRemovedTotal.inc).toHaveBeenCalled();
-      expect(app.conversationsWritePort.updateParticipants).toHaveBeenCalled();
+      expect(app.messagingMetrics.participantsRemovedTotal.inc).toHaveBeenCalledWith({ role: 'member' });
+      expect(app.conversationService.removeParticipant).toHaveBeenCalled();
     } finally {
       await app.close();
     }
@@ -130,23 +109,23 @@ describe('participant routes - edge cases', () => {
   it('lists participants with defaults', async () => {
     const app = await createTestMessagingServer();
     try {
-      app.conversationsReadPort.findById.mockResolvedValueOnce({
-        id: conversationId,
-        participants: [
+      app.conversationService.listParticipants.mockResolvedValueOnce({
+        items: [
           {
             userId: userA,
             role: 'member',
             joinedAt: new Date().toISOString(),
-            leftAt: null,
+            leftAt: undefined,
           },
         ],
+        nextCursor: undefined,
       });
       const res = await app.inject({ method: 'GET', url: `/v1/conversations/${conversationId}/participants`, headers: withAuth() });
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(Array.isArray(body.participants)).toBe(true);
       expect(body.nextCursor === null).toBe(true);
-      expect(app.conversationsReadPort.findById).toHaveBeenCalled();
+      expect(app.conversationService.listParticipants).toHaveBeenCalled();
     } finally {
       await app.close();
     }
@@ -176,14 +155,13 @@ describe('participant routes - edge cases', () => {
   it('supports explicit includeLeft=true', async () => {
     const app = await createTestMessagingServer();
     try {
-      app.conversationsReadPort.findById.mockResolvedValueOnce({
-        id: conversationId,
-        participants: [
+      app.conversationService.listParticipants.mockResolvedValueOnce({
+        items: [
           {
             userId: userA,
             role: 'member',
             joinedAt: new Date().toISOString(),
-            leftAt: null,
+            leftAt: undefined,
           },
           {
             userId: userB,
@@ -192,6 +170,7 @@ describe('participant routes - edge cases', () => {
             leftAt: new Date().toISOString(),
           },
         ],
+        nextCursor: undefined,
       });
       const res = await app.inject({ method: 'GET', url: `/v1/conversations/${conversationId}/participants?includeLeft=true`, headers: withAuth() });
       expect(res.statusCode).toBe(200);
@@ -205,21 +184,21 @@ describe('participant routes - edge cases', () => {
   it('supports limit override', async () => {
     const app = await createTestMessagingServer();
     try {
-      app.conversationsReadPort.findById.mockResolvedValueOnce({
-        id: conversationId,
-        participants: Array.from({ length: 15 }, (_, index) => ({
+      app.conversationService.listParticipants.mockResolvedValueOnce({
+        items: Array.from({ length: 10 }, (_, index) => ({
           userId: `user-${index}`,
           role: 'member',
-          joinedAt: new Date().toISOString(),
-          leftAt: null,
+          joinedAt: new Date(Date.now() + index * 1000).toISOString(),
+          leftAt: undefined,
         })),
+        nextCursor: 'cursor-token',
       });
       const res = await app.inject({ method: 'GET', url: `/v1/conversations/${conversationId}/participants?limit=10`, headers: withAuth() });
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.participants).toHaveLength(10);
       expect(typeof body.nextCursor === 'string' || body.nextCursor === null).toBe(true);
-      expect(app.conversationsReadPort.findById).toHaveBeenCalled();
+      expect(app.conversationService.listParticipants).toHaveBeenCalled();
     } finally {
       await app.close();
     }

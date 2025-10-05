@@ -1,5 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { messagingMetrics } from '../../../observability/metrics';
 import { createTestMessagingServer, TEST_CONVERSATION_ID, TEST_USER_ID, TEST_MESSAGE_ID } from './setupTestServer';
 
 const conv = TEST_CONVERSATION_ID;
@@ -132,12 +131,13 @@ describe('message routes (idempotency and headers)', () => {
   it('mark read increments metrics for non-empty arrays', async () => {
     const app = await createTestMessagingServer();
     try {
-      const incSpy = vi.spyOn(messagingMetrics.markReadUpdates, 'inc').mockImplementation(() => undefined);
+      // Spy on the app's mock metrics (created in setupTestServer)
+      const incSpy = vi.spyOn(app.messagingMetrics.markReadUpdates, 'inc');
       app.messageService.markRead.mockResolvedValueOnce(undefined);
       const res = await app.inject({ method: 'POST', url: '/v1/messages/read', headers: withAuth(), payload: { messageIds: ['11111111-1111-1111-1111-111111111111'], readAt: new Date().toISOString() } });
       expect(res.statusCode).toBe(200);
       expect(res.json().updated).toBe(1);
-      incSpy.mockRestore();
+      expect(incSpy).toHaveBeenCalledWith(1);
     } finally {
       await app.close();
     }

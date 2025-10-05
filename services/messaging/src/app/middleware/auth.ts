@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { createRemoteJWKSet, jwtVerify, errors as joseErrors, type JWTPayload, type JWTVerifyResult } from 'jose';
 import pino from 'pino';
 import type { MessagingConfig } from '../../config';
-import { messagingMetrics } from '../../observability/metrics';
+// Metrics accessed via request.server.messagingMetrics
 import { resolveVerificationKey } from '../../domain/services/tokenVerification';
 import type { AuthContext } from '../../domain/types/auth.types';
 
@@ -104,8 +104,8 @@ export const createRequireAuth = (deps: RequireAuthDependencies) => {
 
   const recordMetric = (outcome: string, startedAt: number) => {
     const durationMs = Date.now() - startedAt;
-    messagingMetrics.authRequestsTotal.labels({ outcome }).inc();
-    messagingMetrics.authLatencyMs.observe(durationMs);
+    request.server.messagingMetrics.authRequestsTotal.labels({ outcome }).inc();
+    request.server.messagingMetrics.authLatencyMs.observe(durationMs);
   };
 
   const fail = (
@@ -203,7 +203,7 @@ export const createRequireAuth = (deps: RequireAuthDependencies) => {
         enumerable: false,
       });
 
-      messagingMetrics.authenticatedRequestsTotal.inc();
+      request.server.messagingMetrics.authenticatedRequestsTotal.inc();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'token verification failed';
 

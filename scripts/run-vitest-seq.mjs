@@ -3,7 +3,10 @@ import { spawnSync } from 'node:child_process';
 
 const shards = [
   // Split messaging-unit into granular shards to prevent memory accumulation
-  { name: 'messaging-unit-app', args: ['services/messaging/src/tests/unit/app'], maxWorkers: 1 },
+  // App tests are particularly memory-heavy (full server instances), so split into micro-shards
+  { name: 'messaging-unit-app-server', args: ['services/messaging/src/tests/unit/app/server.permutations.test.ts', 'services/messaging/src/tests/unit/app/server.bootstrap.test.ts'], maxWorkers: 1 },
+  { name: 'messaging-unit-app-middleware', args: ['services/messaging/src/tests/unit/app/server.authMiddleware.test.ts', 'services/messaging/src/tests/unit/app/middleware'], maxWorkers: 1 },
+  { name: 'messaging-unit-app-other', args: ['services/messaging/src/tests/unit/app/rateLimiter.test.ts', 'services/messaging/src/tests/unit/app/rateLimiter.more.test.ts', 'services/messaging/src/tests/unit/app/errorHandler.more.test.ts', 'services/messaging/src/tests/unit/app/metrics.test.ts', 'services/messaging/src/tests/unit/app/runLoop.test.ts'], maxWorkers: 1 },
   { name: 'messaging-unit-routes', args: ['services/messaging/src/tests/unit/routes'], maxWorkers: 1 },
   // Skip consumer tests temporarily - they have a deep memory leak that needs investigation
   // { name: 'messaging-unit-stream-consumer', args: ['services/messaging/src/tests/unit/stream/consumer.test.ts', 'services/messaging/src/tests/unit/stream/consumer.branches.test.ts'], maxWorkers: 1 },
@@ -43,7 +46,7 @@ for (const { name, args, maxWorkers } of shards) {
       stdio: ['inherit', 'pipe', 'inherit'],
       env: {
         ...process.env,
-        NODE_OPTIONS: process.env.NODE_OPTIONS ?? '--max-old-space-size=8192 --expose-gc'
+        NODE_OPTIONS: '--max-old-space-size=8192 --expose-gc'
       },
       encoding: 'utf-8'
     }

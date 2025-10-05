@@ -1,7 +1,7 @@
 import type { Conversation } from '../../../domain/types/conversation.types';
 import type { ConversationFilter, PageResult } from '../../shared/types';
 import { createInMemoryConversationStore, type InMemoryConversationStore } from './store';
-import type { ConversationsReadPort } from '../conversationsReadPort';
+import type { ConversationsReadPort, ParticipantListOptions } from '../conversationsReadPort';
 
 export type ConversationsReadAdapterDeps = {
   store?: InMemoryConversationStore;
@@ -34,8 +34,29 @@ export const createInMemoryConversationsReadAdapter = (
       const nextCursor = items.length === limit ? items[items.length - 1].id : undefined;
 
       return { items, nextCursor } satisfies PageResult<Conversation>;
+    },
+
+    async listParticipants(id, options?: ParticipantListOptions) {
+      const conversation = conversations.get(id);
+      if (!conversation) return null;
+      
+      const includeLeft = options?.includeLeft ?? false;
+      const base = includeLeft ? conversation.participants : conversation.participants.filter(p => !p.leftAt);
+      const sorted = base.slice().sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
+      
+      return paginateParticipants(sorted, options);
     }
   };
+};
+
+const paginateParticipants = (sorted: Conversation['participants'], options?: ParticipantListOptions) => {
+  const limit = Math.min(options?.limit ?? 50, 100);
+  const cursorIndex = options?.cursor ? sorted.findIndex(p => p.joinedAt === options.cursor) : -1;
+  const start = cursorIndex >= 0 ? cursorIndex + 1 : 0;
+  const items = sorted.slice(start, start + limit);
+  const hasMore = start + limit < sorted.length;
+  const nextCursor = hasMore ? items[items.length - 1].joinedAt : undefined;
+  return { items, nextCursor };
 };
 
 const filterAndSort = (conversations: Conversation[], filter: ConversationFilter) => {

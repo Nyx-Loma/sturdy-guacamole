@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createDispatcher } from '../../../app/stream/dispatcher';
-import { messagingMetrics } from '../../../observability/metrics';
+import { createMockMetrics } from '../../utils/mockMetrics';
 
 describe('dispatcher', () => {
   const fetchBatch = vi.fn();
@@ -11,24 +11,15 @@ describe('dispatcher', () => {
 
   const outbox = { fetchBatch, markSent, markFailed, bury };
   const redis = { xadd: redisXadd };
+  const metrics = createMockMetrics();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.values(messagingMetrics).forEach((metric) => {
-      if (metric && typeof metric === 'object') {
-        if ('inc' in metric && typeof metric.inc === 'function') {
-          vi.spyOn(metric, 'inc').mockImplementation(() => undefined);
-        }
-        if ('labels' in metric && typeof metric.labels === 'function') {
-          vi.spyOn(metric, 'labels').mockReturnValue({ inc: vi.fn() });
-        }
-      }
-    });
   });
 
   it('marks empty batch with empty metric', async () => {
     fetchBatch.mockResolvedValueOnce([]);
-    const dispatcher = createDispatcher({ outbox, redis, stream: 'stream' });
+    const dispatcher = createDispatcher({ outbox, redis, stream: 'stream', metrics });
 
     await dispatcher.tick();
 
@@ -43,7 +34,7 @@ describe('dispatcher', () => {
       { id: 1, message_id: 'm1', conversation_id: 'c1', payload: { foo: 'bar' }, attempts: 0 },
     ]);
     redisXadd.mockResolvedValueOnce('1-0');
-    const dispatcher = createDispatcher({ outbox, redis, stream: 'stream' });
+    const dispatcher = createDispatcher({ outbox, redis, stream: 'stream', metrics });
 
     await dispatcher.tick();
 
@@ -60,7 +51,7 @@ describe('dispatcher', () => {
     ]);
     redisXadd.mockRejectedValue(new Error('redis down'));
 
-    const dispatcher = createDispatcher({ outbox, redis, stream: 'stream', maxAttempts: 10 });
+    const dispatcher = createDispatcher({ outbox, redis, stream: 'stream', maxAttempts: 10, metrics });
 
     await dispatcher.tick();
 

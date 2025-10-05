@@ -74,7 +74,7 @@ export const ConversationSchema = z
   name: NameSchema.optional(),
   description: DescriptionSchema.optional(),
   avatarUrl: z.string().url().optional(),
-  participants: z.array(ParticipantSchema).min(1),
+  participants: z.array(ParticipantSchema),
   settings: ConversationSettingsSchema,
   metadata: ConversationMetadataSchema,
   createdAt: TimestampSchema,

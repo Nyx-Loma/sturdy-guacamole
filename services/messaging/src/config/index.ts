@@ -46,6 +46,7 @@ export const MessagingConfigSchema = z
     POSTGRES_TABLE_MESSAGES: z.string().default('messages'),
     POSTGRES_POOL_MAX: NUMBER_FROM_STRING(z.number().int().positive()).default(100),
     POSTGRES_POOL_MIN: NUMBER_FROM_STRING(z.number().int().positive()).default(10),
+    POSTGRES_STATEMENT_TIMEOUT_MS: NUMBER_FROM_STRING(z.number().int().positive()).default(30_000),
     REDIS_URL: z.string().url().optional(),
     REDIS_STREAM_URL: z.string().url().optional(),
     REDIS_STREAM_NAMESPACE: z.string().default('message-streams'),

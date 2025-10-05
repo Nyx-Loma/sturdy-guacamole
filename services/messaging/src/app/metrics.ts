@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { metricsRegistry, messagingMetrics } from '../observability/metrics';
+import type { MessagingMetrics } from '../observability/metrics';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -11,14 +11,15 @@ declare module 'fastify' {
   }
   interface FastifyInstance {
     config?: import('../config').MessagingConfig;
+    messagingMetrics?: MessagingMetrics;
   }
 }
 
-export const registerMetricsHooks = (app: FastifyInstance) => {
+export const registerMetricsHooks = (app: FastifyInstance, metrics: MessagingMetrics) => {
   app.addHook('onRequest', async (request) => {
     request.metrics = {
       startTime: process.hrtime.bigint(),
-      route: request.routerPath ?? request.url
+      route: (request as { routerPath?: string }).routerPath ?? request.url
     };
   });
 
@@ -30,18 +31,18 @@ export const registerMetricsHooks = (app: FastifyInstance) => {
       method: request.method,
       statusCode: reply.statusCode.toString()
     };
-    messagingMetrics.requestCounter.labels(labels).inc();
-    messagingMetrics.requestDurationMs.labels(labels).observe(duration);
+    metrics.requestCounter.labels(labels).inc();
+    metrics.requestDurationMs.labels(labels).observe(duration);
   });
 };
 
-export const registerMetricsRoute = (app: FastifyInstance) => {
+export const registerMetricsRoute = (app: FastifyInstance, metrics: MessagingMetrics) => {
   app.get('/metrics', async (request, reply) => {
     if (app.config?.NODE_ENV === 'production') {
       return reply.code(404).send();
     }
-    reply.header('Content-Type', metricsRegistry.contentType);
-    reply.send(await metricsRegistry.metrics());
+    reply.header('Content-Type', metrics.registry.contentType);
+    reply.send(await metrics.registry.metrics());
   });
 };
 

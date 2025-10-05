@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createConsumer } from '../../../app/stream/consumer';
-import { messagingMetrics } from '../../../observability/metrics';
+// TODO: Update test to use createMockMetrics() when refactoring
 
 type FakeRedis = ReturnType<typeof createFakeRedis>;
 

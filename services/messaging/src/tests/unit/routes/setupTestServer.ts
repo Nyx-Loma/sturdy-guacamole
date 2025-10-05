@@ -102,7 +102,6 @@ export const createTestMessagingServer = async (options: TestServerOptions = {})
     create: vi.fn().mockResolvedValue(conversationId),
     updateMetadata: vi.fn(),
     softDelete: vi.fn(),
-    updateParticipants: vi.fn(),
   };
   const conversationsReadPort = {
     findById: vi.fn().mockResolvedValue(createConversationMock(conversationId, userId)),

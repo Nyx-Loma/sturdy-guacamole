@@ -1,13 +1,14 @@
 import type { Redis } from 'ioredis';
 import type { FastifyBaseLogger } from 'fastify';
 import type { OutboxRepository } from '../../repositories/outboxRepository';
-import { messagingMetrics } from '../../observability/metrics';
+import type { MessagingMetrics } from '../../observability/metrics';
 import { createCircuitBreaker } from '../../infra/circuitbreakers';
 
 export interface DispatcherOptions {
   outbox: OutboxRepository;
   redis: Redis;
   stream: string;
+  metrics: MessagingMetrics;
   maxLenApprox?: number;
   batchSize?: number;
   maxAttempts?: number;
@@ -31,11 +32,11 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
         const batch = await opts.outbox.fetchBatch(batchSize);
         
         if (!batch.length) {
-          messagingMetrics.dispatchTicksTotal.labels({ result: 'empty' }).inc();
+          opts.metrics.dispatchTicksTotal.labels({ result: 'empty' }).inc();
           return;
         }
 
-        messagingMetrics.outboxPickedTotal.inc(batch.length);
+        opts.metrics.outboxPickedTotal.inc(batch.length);
 
         const successes: string[] = [];
         const softFails: Array<{ id: string; err: string; attempts: number }> = [];
@@ -61,11 +62,11 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
           { timeoutMs: 1500, failureThreshold: 3, halfOpenAfterMs: 5000 },
           {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+            breakerOpened: { inc: (labels) => opts.metrics.breakerOpened.inc(labels as any) },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+            breakerHalfOpen: { inc: (labels) => opts.metrics.breakerHalfOpen.inc(labels as any) },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+            breakerClosed: { inc: (labels) => opts.metrics.breakerClosed.inc(labels as any) },
           }
         );
 
@@ -77,7 +78,7 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
               String(row.conversation_id)
             );
             successes.push(String(row.id));
-            messagingMetrics.dispatchPublishedTotal.inc();
+            opts.metrics.dispatchPublishedTotal.inc();
           } catch (e: unknown) {
             const err = e as Error;
             softFails.push({
@@ -106,15 +107,15 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
             { timeoutMs: 2000, failureThreshold: 3, halfOpenAfterMs: 5000 },
             {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+              breakerOpened: { inc: (labels) => opts.metrics.breakerOpened.inc(labels as any) },
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+              breakerHalfOpen: { inc: (labels) => opts.metrics.breakerHalfOpen.inc(labels as any) },
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+              breakerClosed: { inc: (labels) => opts.metrics.breakerClosed.inc(labels as any) },
             }
           );
           await markSentWithBreaker(successes);
-          messagingMetrics.outboxSentTotal.inc(successes.length);
+          opts.metrics.outboxSentTotal.inc(successes.length);
         }
 
         if (softFails.length) {
@@ -128,18 +129,18 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
               { timeoutMs: 2000, failureThreshold: 3, halfOpenAfterMs: 5000 },
               {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+                breakerOpened: { inc: (labels) => opts.metrics.breakerOpened.inc(labels as any) },
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+                breakerHalfOpen: { inc: (labels) => opts.metrics.breakerHalfOpen.inc(labels as any) },
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+                breakerClosed: { inc: (labels) => opts.metrics.breakerClosed.inc(labels as any) },
               }
             );
             await markFailedWithBreaker(
               toRetry.map((f) => f.id),
               'redis_publish_failed'
             );
-            messagingMetrics.outboxFailedTotal.inc(toRetry.length);
+            opts.metrics.outboxFailedTotal.inc(toRetry.length);
           }
 
           if (toBury.length) {
@@ -149,16 +150,16 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
               { timeoutMs: 2000, failureThreshold: 3, halfOpenAfterMs: 5000 },
               {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+                breakerOpened: { inc: (labels) => opts.metrics.breakerOpened.inc(labels as any) },
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+                breakerHalfOpen: { inc: (labels) => opts.metrics.breakerHalfOpen.inc(labels as any) },
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+                breakerClosed: { inc: (labels) => opts.metrics.breakerClosed.inc(labels as any) },
               }
             );
             await buryWithBreaker(toBury, 'max_attempts_exceeded');
-            messagingMetrics.outboxDeadTotal.inc(toBury.length);
-            messagingMetrics.dispatchDlqTotal.labels({ sink: 'postgres' }).inc(toBury.length);
+            opts.metrics.outboxDeadTotal.inc(toBury.length);
+            opts.metrics.dispatchDlqTotal.labels({ sink: 'postgres' }).inc(toBury.length);
             
             log.warn(
               { outboxIds: toBury, maxAttempts },
@@ -167,14 +168,14 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
           }
         }
 
-        messagingMetrics.dispatchTicksTotal.labels({ result: 'ok' }).inc();
+        opts.metrics.dispatchTicksTotal.labels({ result: 'ok' }).inc();
       } catch (error) {
-        messagingMetrics.dispatchTicksTotal.labels({ result: 'error' }).inc();
+        opts.metrics.dispatchTicksTotal.labels({ result: 'error' }).inc();
         log.error({ err: error }, 'dispatcher_tick_error');
         throw error;
       } finally {
         const durationSeconds = (Date.now() - startTime) / 1000;
-        messagingMetrics.dispatchTickDurationSeconds.observe(durationSeconds);
+        opts.metrics.dispatchTickDurationSeconds.observe(durationSeconds);
       }
     },
   };

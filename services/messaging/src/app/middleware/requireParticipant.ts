@@ -1,7 +1,8 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ParticipantCache } from '../stream/participantCache';
-import { messagingMetrics } from '../../observability/metrics';
+// Metrics accessed via request.server.messagingMetrics
 import type { AuthContext } from '../../domain/types/auth.types';
+import { ParticipantRole } from '../../domain/types/conversation.types';
 
 /**
  * Authorization middleware for messaging routes
@@ -35,6 +36,7 @@ class RateLimiter {
   private buckets = new Map<string, RateLimitBucket>();
   private readonly maxRequests: number;
   private readonly windowMs: number;
+  private lastSweepAt = 0;
 
   constructor(maxRequests = 100, windowMs = 60_000) {
     this.maxRequests = maxRequests;
@@ -43,6 +45,10 @@ class RateLimiter {
 
   check(key: string): { allowed: boolean; retryAfterMs?: number } {
     const now = Date.now();
+    
+    // Lazy sweep: clean expired buckets every 5 minutes
+    this.maybeCleanup(now);
+    
     const bucket = this.buckets.get(key);
 
     // No bucket or expired bucket - allow and create new
@@ -61,9 +67,16 @@ class RateLimiter {
     return { allowed: true };
   }
 
-  // Cleanup expired buckets periodically
-  cleanup(): void {
-    const now = Date.now();
+  // Lazy cleanup: only sweep when enough time has passed
+  private maybeCleanup(now = Date.now()): void {
+    if (now - this.lastSweepAt >= 5 * 60_000) {
+      this.cleanup(now);
+      this.lastSweepAt = now;
+    }
+  }
+
+  // Cleanup expired buckets
+  private cleanup(now = Date.now()): void {
     for (const [key, bucket] of this.buckets.entries()) {
       if (bucket.resetAt <= now) {
         this.buckets.delete(key);
@@ -119,59 +132,51 @@ function extractConversationId(request: FastifyRequest): string | null {
  * Uses participant cache for fast lookups with DB fallback
  * SECURITY: Fails closed - denies access on any error
  */
-async function isParticipant(
+async function resolveParticipant(
   conversationId: string,
   userId: string,
   cache: ParticipantCache,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   participantsReadPort?: any
-): Promise<boolean> {
+): Promise<{ isMember: boolean; role?: ParticipantRole }> {
   try {
     const participantUserIds = await cache.get(conversationId);
-    
+
     if (participantUserIds.length > 0) {
-      // Cache hit
-      messagingMetrics.participantCacheHits.inc();
-      return participantUserIds.includes(userId);
+      request.server.messagingMetrics.participantCacheHits.inc();
+      const isMember = participantUserIds.includes(userId);
+      return { isMember, role: undefined };
     }
-    
-    // Cache miss - fetch from DB if port is available
-    messagingMetrics.participantCacheMisses.inc();
-    
+
+    request.server.messagingMetrics.participantCacheMisses.inc();
+
     if (!participantsReadPort) {
-      // No DB port available - FAIL CLOSED for security
-      messagingMetrics.participantCacheErrors.inc();
-      return false;
+      request.server.messagingMetrics.participantCacheErrors.inc();
+      return { isMember: false };
     }
-    
-    // Fetch from DB and populate cache
+
     try {
-      const participants = await participantsReadPort.list(conversationId, { includeLeft: false });
-      const userIds = participants.map((p: { userId: string }) => p.userId);
-      
-      // Populate cache for future requests
+      const participants = await participantsReadPort.list(conversationId, { includeLeft: true });
+      const activeParticipants = participants.filter((p: { leftAt?: string | null }) => !p.leftAt);
+      const userIds = activeParticipants.map((p: { userId: string }) => p.userId);
+
       await cache.set(conversationId, userIds);
-      
+
       const isMember = userIds.includes(userId);
-      
-      // Negative caching: cache non-membership briefly to prevent DB spam
+      const role = participants.find((p: { userId: string; role: ParticipantRole; leftAt?: string | null }) => p.userId === userId && !p.leftAt)?.role as ParticipantRole | undefined;
+
       if (!isMember) {
         // TODO: Implement negative caching with short TTL (30-60s)
-        // This prevents repeated DB queries for attackers trying invalid conversations
       }
-      
-      return isMember;
+
+      return { isMember, role };
     } catch (dbError) {
-      // DB query failed - FAIL CLOSED
-      messagingMetrics.participantCacheErrors.inc();
-      throw dbError; // Re-throw to be caught by outer catch
+      request.server.messagingMetrics.participantCacheErrors.inc();
+      throw dbError;
     }
   } catch (error) {
-    // CRITICAL: Any error in authorization check must DENY access
-    // This prevents cache failures, DB outages, or bugs from bypassing authz
-    messagingMetrics.participantCacheErrors.inc();
-    
-    // Log structured event for security monitoring
+    request.server.messagingMetrics.participantCacheErrors.inc();
+
     console.error({
       event: 'participant_check_failed',
       conversationId,
@@ -179,8 +184,8 @@ async function isParticipant(
       error: error instanceof Error ? error.message : String(error),
       action: 'access_denied'
     });
-    
-    return false; // FAIL CLOSED - deny access on any error
+
+    return { isMember: false };
   }
 }
 
@@ -193,15 +198,8 @@ export function createRequireParticipant(
   participantsReadPort?: any
 ) {
   // Create rate limiter instance (shared across all requests)
+  // Uses lazy cleanup - no background timers
   const rateLimiter = new RateLimiter(100, 60_000); // 100 req/min
-  
-  // Cleanup expired buckets every 5 minutes
-  const cleanupInterval = setInterval(() => rateLimiter.cleanup(), 5 * 60_000);
-  
-  // Cleanup on process exit (for tests/graceful shutdown)
-  if (typeof process !== 'undefined') {
-    process.once('beforeExit', () => clearInterval(cleanupInterval));
-  }
 
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     // Skip authorization for health checks and public routes
@@ -218,7 +216,7 @@ export function createRequireParticipant(
     // 1. EXTRACT AUTH CONTEXT (needed for both rate limiting and authorization)
     const authContext = extractAuthContext(request);
     if (!authContext) {
-      messagingMetrics.authenticationFailures.inc();
+      request.server.messagingMetrics.authenticationFailures.inc();
       return reply.code(401).send({
         code: 'UNAUTHORIZED',
         message: 'Missing or invalid authentication',
@@ -232,7 +230,7 @@ export function createRequireParticipant(
     const rateLimitResult = rateLimiter.check(rateLimitKey);
     
     if (!rateLimitResult.allowed) {
-      messagingMetrics.rateLimitExceeded.labels({
+      request.server.messagingMetrics.rateLimitExceeded.labels({
         route,
         scope: 'userId'
       }).inc();
@@ -254,17 +252,17 @@ export function createRequireParticipant(
     }
 
     // 4. AUTHORIZATION CHECK (participant verification)
-    const authorized = await isParticipant(
+    const { isMember } = await resolveParticipant(
       conversationId,
       authContext.userId,
       cache,
       participantsReadPort
     );
     
-    if (!authorized) {
+    if (!isMember) {
       // User is NOT a participant - deny access
       const denyRoute = (request as { routerPath?: string }).routerPath || request.url;
-      messagingMetrics.securityDeniedTotal.labels({
+      request.server.messagingMetrics.securityDeniedTotal.labels({
         route: denyRoute,
         reason: 'not_participant'
       }).inc();
@@ -302,22 +300,33 @@ export function createRequireParticipant(
  * Middleware for routes that require admin role
  * Used for participant management (add/remove participants)
  */
-export function createRequireAdmin(cache: ParticipantCache) {
+export function createRequireAdmin(
+  cache: ParticipantCache,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  participantsReadPort?: any
+) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    // First check if they're a participant
-    await createRequireParticipant(cache)(request, reply);
-    
-    // TODO: Check if participant has admin role
-    // For now, allow all participants to be admins (will be enforced in DB/port layer)
-    // const authContext = (request as any).authContext;
-    // const conversationId = extractConversationId(request);
-    // const isAdmin = await checkAdminRole(conversationId, authContext.userId);
-    // if (!isAdmin) {
-    //   return reply.code(403).send({
-    //     code: 'INSUFFICIENT_PERMISSIONS',
-    //     message: 'Admin role required for this operation',
-    //   });
-    // }
+    await createRequireParticipant(cache, participantsReadPort)(request, reply);
+    if (reply.sent) return;
+
+    const authContext = extractAuthContext(request);
+    const conversationId = extractConversationId(request);
+    if (!authContext || !conversationId) {
+      return reply.code(403).send({
+        code: 'INSUFFICIENT_PERMISSIONS',
+        message: 'Admin role required for this operation',
+        requestId: request.id,
+      });
+    }
+
+    const { isMember, role } = await resolveParticipant(conversationId, authContext.userId, cache, participantsReadPort);
+    if (!isMember || !role || (role !== ParticipantRole.ADMIN && role !== ParticipantRole.OWNER)) {
+      return reply.code(403).send({
+        code: 'INSUFFICIENT_PERMISSIONS',
+        message: 'Admin role required for this operation',
+        requestId: request.id,
+      });
+    }
   };
 }
 
@@ -325,21 +334,23 @@ export function createRequireAdmin(cache: ParticipantCache) {
  * Special case: self-removal
  * Users can always remove themselves, even without admin role
  */
-export function createRequireParticipantOrSelf(cache: ParticipantCache) {
+export function createRequireParticipantOrSelf(
+  cache: ParticipantCache,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  participantsReadPort?: any
+) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const authContext = extractAuthContext(request);
     const params = request.params as Record<string, string | undefined>;
     const targetUserId = params.userId;
 
-    // Allow if removing self
     if (authContext && targetUserId === authContext.userId) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (request as any).authContext = authContext;
       return;
     }
 
-    // Otherwise, require admin
-    return createRequireAdmin(cache)(request, reply);
+    return createRequireAdmin(cache, participantsReadPort)(request, reply);
   };
 }
 
