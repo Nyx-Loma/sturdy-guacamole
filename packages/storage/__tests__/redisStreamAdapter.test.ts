@@ -46,6 +46,13 @@ beforeEach(() => {
 });
 
 describe("RedisStreamAdapter", () => {
+  it("init is idempotent", async () => {
+    const adapter = createAdapter();
+    await adapter.init();
+    await adapter.init();
+
+    expect(connectMock).toHaveBeenCalledTimes(2);
+  });
   it("connects redis clients on init", async () => {
     const adapter = createAdapter();
     await adapter.init();

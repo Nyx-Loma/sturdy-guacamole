@@ -2,6 +2,7 @@ import type { Redis } from 'ioredis';
 import type { FastifyBaseLogger } from 'fastify';
 import type { OutboxRepository } from '../../repositories/outboxRepository';
 import { messagingMetrics } from '../../observability/metrics';
+import { createCircuitBreaker } from '../../infra/circuitbreakers';
 
 export interface DispatcherOptions {
   outbox: OutboxRepository;
@@ -39,8 +40,10 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
         const successes: string[] = [];
         const softFails: Array<{ id: string; err: string; attempts: number }> = [];
 
-        for (const row of batch) {
-          try {
+        // Wrap Redis publish with a breaker (per tick instance)
+        const publishWithBreaker = createCircuitBreaker(
+          'redis_xadd',
+          async (payload: string, messageId: string, conversationId: string) => {
             await opts.redis.xadd(
               opts.stream,
               'MAXLEN',
@@ -48,11 +51,30 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
               String(maxLen),
               '*',
               'message_id',
-              String(row.message_id),
+              messageId,
               'conversation_id',
-              String(row.conversation_id),
+              conversationId,
               'payload',
-              JSON.stringify(row.payload)
+              payload
+            );
+          },
+          { timeoutMs: 1500, failureThreshold: 3, halfOpenAfterMs: 5000 },
+          {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+          }
+        );
+
+        for (const row of batch) {
+          try {
+            await publishWithBreaker(
+              JSON.stringify(row.payload),
+              String(row.message_id),
+              String(row.conversation_id)
             );
             successes.push(String(row.id));
             messagingMetrics.dispatchPublishedTotal.inc();
@@ -77,7 +99,21 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
         }
 
         if (successes.length) {
-          await opts.outbox.markSent(successes);
+          // Wrap DB updates with a breaker
+          const markSentWithBreaker = createCircuitBreaker(
+            'pg_mark_sent',
+            async (ids: string[]) => opts.outbox.markSent(ids),
+            { timeoutMs: 2000, failureThreshold: 3, halfOpenAfterMs: 5000 },
+            {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+            }
+          );
+          await markSentWithBreaker(successes);
           messagingMetrics.outboxSentTotal.inc(successes.length);
         }
 
@@ -86,7 +122,20 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
           const toRetry = softFails.filter((f) => f.attempts < maxAttempts);
 
           if (toRetry.length) {
-            await opts.outbox.markFailed(
+            const markFailedWithBreaker = createCircuitBreaker(
+              'pg_mark_failed',
+              async (ids: string[], reason: string) => opts.outbox.markFailed(ids, reason),
+              { timeoutMs: 2000, failureThreshold: 3, halfOpenAfterMs: 5000 },
+              {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+              }
+            );
+            await markFailedWithBreaker(
               toRetry.map((f) => f.id),
               'redis_publish_failed'
             );
@@ -94,7 +143,20 @@ export const createDispatcher = (opts: DispatcherOptions): Dispatcher => {
           }
 
           if (toBury.length) {
-            await opts.outbox.bury(toBury, 'max_attempts_exceeded');
+            const buryWithBreaker = createCircuitBreaker(
+              'pg_bury',
+              async (ids: string[], reason: string) => opts.outbox.bury(ids, reason),
+              { timeoutMs: 2000, failureThreshold: 3, halfOpenAfterMs: 5000 },
+              {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+              }
+            );
+            await buryWithBreaker(toBury, 'max_attempts_exceeded');
             messagingMetrics.outboxDeadTotal.inc(toBury.length);
             messagingMetrics.dispatchDlqTotal.labels({ sink: 'postgres' }).inc(toBury.length);
             

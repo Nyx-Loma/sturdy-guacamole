@@ -79,6 +79,7 @@ export const ConversationSchema = z
   metadata: ConversationMetadataSchema,
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
+  version: z.number().int().nonnegative().optional(),
   lastMessageId: UUIDSchema.optional(),
   lastMessageAt: TimestampSchema.optional(),
   lastMessagePreview: z.string().max(200).optional(),

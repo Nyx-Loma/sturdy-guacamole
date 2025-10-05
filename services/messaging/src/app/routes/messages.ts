@@ -24,8 +24,6 @@ export const registerMessageRoutes = async (app: FastifyInstance) => {
         type: 'object',
         properties: {
           'idempotency-key': { type: 'string', format: 'uuid', description: 'Optional UUID for idempotent sends' },
-          'x-device-id': { type: 'string', description: 'Device identifier' },
-          'x-session-id': { type: 'string', description: 'Session identifier' },
         },
       },
       body: {
@@ -77,6 +75,11 @@ export const registerMessageRoutes = async (app: FastifyInstance) => {
       headers: request.headers
     });
 
+    const auth = (request as { auth?: import('../../domain/types/auth.types').AuthContext }).auth;
+    if (!auth) {
+      throw new PayloadValidationError('Missing authentication context', 401);
+    }
+
     enforcePayloadLimits(params.body.payloadSizeBytes, app);
     const encryptedBytes = Buffer.from(params.body.encryptedContent, 'base64');
     if (encryptedBytes.toString('base64') !== params.body.encryptedContent) {
@@ -105,10 +108,10 @@ export const registerMessageRoutes = async (app: FastifyInstance) => {
     };
 
     const actor = {
-      id: params.body.senderId,
+      id: auth.userId,
       role: 'user' as const,
-      deviceId: params.headers['x-device-id'],
-      sessionId: params.headers['x-session-id']
+      deviceId: auth.deviceId,
+      sessionId: auth.sessionId
     };
 
     const firstMessageId = await app.messageService.send(command, actor, { messageId: proposedId });
@@ -185,11 +188,16 @@ export const registerMessageRoutes = async (app: FastifyInstance) => {
       return reply.send({ updated: 0 });
     }
 
+    const auth = (request as { auth?: import('../../domain/types/auth.types').AuthContext }).auth;
+    if (!auth) {
+      throw new PayloadValidationError('Missing authentication context', 401);
+    }
+
     const actor = {
-      id: body.actorId,
+      id: auth.userId,
       role: 'user' as const,
-      deviceId: request.headers['x-device-id']?.toString(),
-      sessionId: request.headers['x-session-id']?.toString()
+      deviceId: auth.deviceId,
+      sessionId: auth.sessionId
     };
 
     await app.messageService.markRead(body.messageIds, body.readAt, actor);

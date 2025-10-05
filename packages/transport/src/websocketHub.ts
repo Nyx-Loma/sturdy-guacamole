@@ -1,9 +1,9 @@
 import type { RawData } from 'ws';
-import type { WebSocketHubOptions, RegisterResult, ResumeResult } from './types';
-import type { HubState } from './websocketHub/state';
-import { createHubState } from './websocketHub/state';
-import { registerClient } from './websocketHub/registerClient';
-import { handleMessage } from './websocketHub/handleMessage';
+import type { WebSocketHubOptions, RegisterResult, ResumeResult } from './types.js';
+import type { HubState } from './websocketHub/state.js';
+import { createHubState } from './websocketHub/state.js';
+import { registerClient } from './websocketHub/registerClient.js';
+import { handleMessage } from './websocketHub/handleMessage.js';
 import type { WebSocket } from 'ws';
 
 export class WebSocketHub {

@@ -1,186 +1,35 @@
-import Fastify, { type FastifyInstance } from 'fastify';
-import fastifyCors from '@fastify/cors';
-import fastifySwagger from '@fastify/swagger';
-import fastifySwaggerUi from '@fastify/swagger-ui';
+import type { FastifyInstance } from 'fastify';
 import { loadConfig } from '../config';
-import { registerErrorHandler } from './errorHandler';
-import { registerRateLimiter } from './rateLimiter';
-import { registerRoutes } from './routes';
-import { registerMetricsRoute, registerMetricsHooks } from './metrics';
-import fastifyWebsocket from '@fastify/websocket';
-import { WebSocketHub } from '@sanctum/transport';
-import { createMessagingContainer } from './serverContainer';
-import { createDispatcherRunner } from './stream/runLoop';
+import { registerMetricsRoute } from './metrics';
+import { createMessagingServer } from './buildServer';
 
 export interface MessagingServer {
   app: FastifyInstance;
   start(): Promise<void>;
   stop(): Promise<void>;
+  setReady(ready: boolean): void;
 }
+
+let isReady = false;
 
 export const createServer = async (): Promise<MessagingServer> => {
   const config = loadConfig();
-  const app = Fastify({
-    logger: {
-      level: config.LOG_LEVEL,
-      redact: ['req.headers.authorization', 'req.headers.cookie']
-    },
-    disableRequestLogging: false,
-    bodyLimit: config.PAYLOAD_MAX_BYTES
-  });
-
-  app.decorate('config', config);
+  const { app, container, dispatcherRunner } = await createMessagingServer({ config });
 
   registerSecurityHeaders(app);
-  registerMetricsHooks(app);
-  await app.register(fastifyWebsocket);
-  registerRateLimiter(app, {
-    global: {
-      max: config.RATE_LIMIT_MAX,
-      intervalMs: config.RATE_LIMIT_INTERVAL_MS,
-      allowList: ['127.0.0.1', '::1']
-    },
-    routes: [
-      {
-        method: 'POST',
-        url: '/v1/messages',
-        scope: 'device',
-        max: config.RATE_LIMIT_PER_DEVICE,
-        intervalMs: config.RATE_LIMIT_INTERVAL_MS
-      },
-      {
-        method: 'POST',
-        url: '/v1/messages',
-        scope: 'session',
-        max: config.RATE_LIMIT_PER_SESSION,
-        intervalMs: config.RATE_LIMIT_INTERVAL_MS
-      },
-      {
-        method: 'POST',
-        url: '/v1/messages',
-        scope: 'user',
-        max: config.RATE_LIMIT_PER_USER,
-        intervalMs: config.RATE_LIMIT_INTERVAL_MS
-      }
-    ]
-  });
-  registerErrorHandler(app);
-  registerRoutes(app);
   registerMetricsRoute(app);
-  
-  // Stage 3D: Apply authorization middleware AFTER routes are registered
-  // This will be wired in the start() method after container is initialized
 
-  const hub = new WebSocketHub({
-    heartbeatIntervalMs: config.WEBSOCKET_HEARTBEAT_INTERVAL_MS,
-    metricsRegistry: app.metricsRegistry,
-    authenticate: async ({ requestHeaders, clientId }) => {
-      const deviceIdHeader = requestHeaders['x-device-id'];
-      const sessionIdHeader = requestHeaders['x-session-id'];
-      const deviceId = Array.isArray(deviceIdHeader) ? deviceIdHeader[0] : deviceIdHeader;
-      const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
-      if (!deviceId || !sessionId) {
-        throw new Error('missing device or session headers');
-      }
-      return { accountId: clientId, deviceId };
-    },
-    loadResumeState: async () => null,
-    persistResumeState: async () => undefined,
-    dropResumeState: async () => undefined
-  });
-
-  const container = await createMessagingContainer(app, config, hub);
-
-  // Stage 3D: Apply authorization middleware (after container is created)
-  // Feature flag: PARTICIPANT_ENFORCEMENT_ENABLED (defaults to false for staged rollout)
-  // NOTE: Rate limiting (100 req/min per user) is implemented INSIDE requireParticipant
-  if (config.PARTICIPANT_ENFORCEMENT_ENABLED !== false) {
-    const { createRequireParticipant } = await import('./middleware/requireParticipant');
-    const requireParticipant = createRequireParticipant(app.participantCache);
-    // codeql[js/missing-rate-limiting] Rate limiting enforced inside requireParticipant middleware (lines 177-228)
-    app.addHook('preHandler', requireParticipant);
-    app.log.info('✅ Authorization middleware enabled (with rate limiting)');
-  } else {
-    app.log.info('authorization_middleware_disabled');
-  }
-
-  app.get('/ws/metrics', async (_, reply) => {
-    reply.header('content-type', 'text/plain');
-    const registry = hub.getMetricsRegistry();
-    return registry ? registry.metrics() : 'counter 0';
-  });
-
-  app.get('/ws', { websocket: true }, (connection, request) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const socket = 'socket' in connection ? connection.socket : (connection as any);
-    const clientId = request.id.toString();
-    void hub
-      .register(socket, clientId, request.headers)
-      .then(() => {
-        socket.on('message', (raw) => {
-          void hub.handleMessage(clientId, raw);
-        });
-      })
-      .catch((err) => {
-        app.log.error({ err, clientId }, 'websocket register failed');
-        socket.close(1011, 'registration_failed');
-      });
-  });
-
-  const dispatcherRunner = container.dispatcher
-    ? createDispatcherRunner(container.dispatcher, config, app.log)
-    : null;
-
-  // Register Swagger for OpenAPI documentation
-  await app.register(fastifySwagger, {
-    openapi: {
-      openapi: '3.1.0',
-      info: {
-        title: 'Sanctum Messaging API',
-        description: 'End-to-end encrypted messaging service with realtime delivery and conversation management',
-        version: '1.0.0',
-        contact: {
-          name: 'Sanctum Platform',
-        },
-      },
-      servers: [
-        { url: `http://localhost:${config.HTTP_PORT}`, description: 'Local development' },
-        { url: 'https://messages.sanctum.app', description: 'Production' },
-      ],
-      tags: [
-        { name: 'messages', description: 'Message sending and retrieval' },
-        { name: 'conversations', description: 'Conversation management' },
-        { name: 'participants', description: 'Participant management' },
-        { name: 'health', description: 'Health and status checks' },
-      ],
-      components: {
-        securitySchemes: {
-          bearerAuth: {
-            type: 'http',
-            scheme: 'bearer',
-            bearerFormat: 'JWT',
-          },
-        },
-      },
-    },
-  });
-
-  // Register Swagger UI
-  await app.register(fastifySwaggerUi, {
-    routePrefix: '/docs',
-    uiConfig: {
-      docExpansion: 'list',
-      deepLinking: true,
-    },
-    staticCSP: true,
+  // Readiness probe - flips to false during shutdown
+  app.get('/ready', async () => {
+    if (!isReady) {
+      return { ready: false, code: 503 };
+    }
+    return { ready: true };
   });
 
   return {
     app,
     async start() {
-      if (config.NODE_ENV !== 'production') {
-        await app.register(fastifyCors, { origin: false });
-      }
       await container.init();
       if (dispatcherRunner) {
         await dispatcherRunner.start();
@@ -189,16 +38,45 @@ export const createServer = async (): Promise<MessagingServer> => {
         await container.consumer.start();
       }
       await app.listen({ host: config.HTTP_HOST, port: config.HTTP_PORT });
+      isReady = true;
       app.log.info(`📚 OpenAPI documentation available at http://${config.HTTP_HOST}:${config.HTTP_PORT}/docs`);
     },
     async stop() {
+      app.log.info('Starting graceful shutdown sequence...');
+      
+      // 1. Flip readiness to not-ready (K8s stops sending traffic)
+      isReady = false;
+      app.log.info('Readiness probe set to not-ready');
+      
+      // 2. Stop accepting new HTTP/WebSocket connections
+      await new Promise<void>((resolve) => {
+        app.server.close(() => {
+          app.log.info('HTTP server closed, no longer accepting connections');
+          resolve();
+        });
+      });
+      
+      // 3. Stop consumers (drains buffers before stopping)
       if (container.consumer) {
+        app.log.info('Stopping consumer and draining buffers...');
         await container.consumer.stop();
+        app.log.info('Consumer stopped');
       }
+      
+      // 4. Stop dispatcher (flushes outbox)
       if (dispatcherRunner) {
+        app.log.info('Stopping dispatcher...');
         await dispatcherRunner.stop();
+        app.log.info('Dispatcher stopped');
       }
+      
+      // 5. Close Fastify (closes DB/Redis pools via onClose hooks)
+      app.log.info('Closing Fastify and resource pools...');
       await app.close();
+      app.log.info('Graceful shutdown complete');
+    },
+    setReady(ready: boolean) {
+      isReady = ready;
     }
   };
 };
@@ -220,8 +98,68 @@ const registerSecurityHeaders = (app: FastifyInstance) => {
 };
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  let server: MessagingServer | null = null;
+  let isShuttingDown = false;
+  const SHUTDOWN_TIMEOUT_MS = 45000; // 45s hard timeout
+
+  const gracefulShutdown = async (signal: string) => {
+    if (isShuttingDown) {
+      console.log(`${signal} received again, forcing immediate exit`);
+      process.exit(1);
+    }
+    isShuttingDown = true;
+
+    console.log(`${signal} received, initiating graceful shutdown (max ${SHUTDOWN_TIMEOUT_MS}ms)...`);
+
+    // Hard timeout to prevent hanging on stuck resources
+    const forceExitTimer = setTimeout(() => {
+      console.error('Graceful shutdown timeout exceeded, forcing exit');
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS);
+
+    try {
+      if (server) {
+        await server.stop();
+        clearTimeout(forceExitTimer);
+        console.log('Graceful shutdown completed successfully');
+        process.exit(0);
+      } else {
+        clearTimeout(forceExitTimer);
+        process.exit(0);
+      }
+    } catch (error) {
+      console.error('Error during graceful shutdown:', error);
+      clearTimeout(forceExitTimer);
+      process.exit(1);
+    }
+  };
+
+  // Handle termination signals
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  // Handle unhandled errors - log and initiate shutdown
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    if (server) {
+      server.setReady(false); // Stop accepting new work
+    }
+    gracefulShutdown('unhandledRejection');
+  });
+
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    if (server) {
+      server.setReady(false); // Stop accepting new work
+    }
+    gracefulShutdown('uncaughtException');
+  });
+
   createServer()
-    .then((server) => server.start())
+    .then((s) => {
+      server = s;
+      return server.start();
+    })
     .catch((error) => {
       console.error('Failed to start messaging service', error);
       process.exit(1);

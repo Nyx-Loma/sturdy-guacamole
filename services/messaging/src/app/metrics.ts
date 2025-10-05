@@ -7,6 +7,7 @@ declare module 'fastify' {
       startTime: bigint;
       route: string;
     };
+    auth?: import('../domain/types/auth.types').AuthContext;
   }
   interface FastifyInstance {
     config?: import('../config').MessagingConfig;

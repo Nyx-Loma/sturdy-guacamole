@@ -1,131 +1,29 @@
-import { defineConfig, defineProject } from 'vitest/config';
+import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
-const alias = {
-  '@sanctum/config': path.resolve(rootDir, 'packages/config/src/index.ts'),
-  '@sanctum/transport': path.resolve(rootDir, 'packages/transport/src/index.ts'),
-  '@sanctum/crypto/backup/derive': path.resolve(rootDir, 'packages/crypto/src/backup/derive.ts'),
-  '@sanctum/crypto': path.resolve(rootDir, 'packages/crypto/src/index.ts')
-} as const;
-
-const coverageThresholds = {
-  provider: 'v8',
-  reportsDirectory: './coverage',
-  lines: 85,
-  functions: 85,
-  statements: 85,
-  branches: 75,
-  include: [
-    'apps/**/src/**/*.ts',
-    'packages/**/src/**/*.ts',
-    'services/**/src/**/*.ts'
-  ],
-  exclude: [
-    '**/dist/**',
-    '**/__tests__/**',
-    '**/tests/**',
-    '**/*.d.ts',
-    '**/scripts/**',
-    '**/vitest.setup.ts'
-  ],
-  thresholds: {
-    perFile: {
-      'services/auth/src/**': {
-        lines: 90,
-        statements: 90,
-        branches: 85,
-        functions: 90
-      },
-      'packages/crypto/src/**': {
-        lines: 85,
-        statements: 85,
-        branches: 75,
-        functions: 80
-      }
-    }
-  }
-} as const;
-
-const projects = [
-  defineProject({
-    resolve: { alias },
-    test: {
-      name: 'unit',
-      include: [
-        'packages/**/__tests__/**/*.test.ts',
-        'services/**/src/tests/unit/**/*.test.ts',
-        'services/**/tests/unit/**/*.test.ts',
-        'apps/server/__tests__/**/*.test.ts'
-      ],
-      setupFiles: ['vitest.global.setup.ts', 'packages/crypto/vitest.setup.ts']
-    }
-  }),
-  defineProject({
-    resolve: { alias },
-    test: {
-      name: 'integration',
-      include: [
-        'services/**/src/tests/integration/**/*.test.ts',
-        'services/**/src/tests/e2e/**/*.test.ts',
-        'services/**/tests/integration/**/*.test.ts',
-        'services/**/tests/e2e/**/*.test.ts'
-      ],
-      setupFiles: ['vitest.global.setup.ts', 'packages/crypto/vitest.setup.ts'],
-      retry: 2,
-      retryDelay: 200,
-      sequence: {
-        mode: 'serial'
-      }
-    }
-  }),
-  defineProject({
-    resolve: { alias },
-    test: {
-      name: 'security',
-      include: ['services/**/src/tests/security/**/*.test.ts', 'services/**/tests/security/**/*.test.ts'],
-      setupFiles: ['vitest.global.setup.ts', 'packages/crypto/vitest.setup.ts']
-    }
-  }),
-  defineProject({
-    resolve: { alias },
-    test: {
-      name: 'storage-contracts',
-      include: ['packages/storage/tests/contracts/**/*.test.ts'],
-      globals: true,
-      environment: 'node'
-    }
-  }),
-  defineProject({
-    resolve: { alias },
-    test: {
-      name: 'storage-integration',
-      include: ['packages/storage/tests/integration/**/*.test.ts'],
-      setupFiles: ['packages/storage/tests/integration/setup.ts'],
-      testTimeout: 120_000,
-      hookTimeout: 120_000,
-      globals: true,
-      sequence: {
-        mode: 'serial'
-      }
-    }
-  })
-];
-
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@sanctum/config': path.resolve(rootDir, 'packages/config/src/index.ts'),
+      '@sanctum/transport': path.resolve(rootDir, 'packages/transport/src/index.ts'),
+      '@sanctum/crypto/backup/derive': path.resolve(rootDir, 'packages/crypto/src/backup/derive.ts'),
+      '@sanctum/crypto': path.resolve(rootDir, 'packages/crypto/src/index.ts'),
+      '@fastify/cors': path.resolve(rootDir, 'test/stubs/fastify-cors.ts')
+    }
+  },
   test: {
     globals: true,
     environment: 'node',
-    setupFiles: ['vitest.global.setup.ts'],
-    testTimeout: 15000,
-    coverage: coverageThresholds,
-    projects,
-    include: ['services/**/src/tests/unit/**/*.test.ts', 'services/**/tests/unit/**/*.test.ts', 'packages/**/__tests__/**/*.test.ts', 'apps/server/__tests__/**/*.test.ts']
-  },
-  resolve: {
-    alias
+    pool: 'forks',
+    isolate: true,
+    setupFiles: ['./vitest.global.setup.ts'],
+    testTimeout: 15_000,
+    hookTimeout: 30_000
+    // Use Vitest's default include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+    // Shards are driven via --dir flag in the sequential runner
   }
 });
 

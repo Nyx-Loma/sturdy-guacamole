@@ -1,72 +1,110 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Fastify from 'fastify';
-import { registerMessageRoutes } from '../../../app/routes/messages';
-import { registerErrorHandler } from '../../../app/errorHandler';
-import { messagingMetrics } from '../../../observability/metrics';
+import { describe, expect, it } from 'vitest';
+import { createTestMessagingServer, TEST_MESSAGE_ID } from './setupTestServer';
 
-const createServer = async () => {
-  const app = Fastify({ bodyLimit: 65_536 });
-  app.decorate('config', {
-    PAYLOAD_MAX_BYTES: 65_536
-  } as any);
-  const mockMessage = {
-    id: '11111111-1111-1111-1111-111111111111',
-    conversationId: '00000000-0000-0000-0000-000000000000',
-    senderId: '00000000-0000-0000-0000-000000000001',
-    type: 'text',
-    status: 'sent',
-    encryptedContent: 'SGVsbG8=',
-    metadata: undefined,
-    contentSize: 5,
-    contentMimeType: undefined,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
+const withAuth = (headers: Record<string, string> = {}) => ({ authorization: 'Bearer token', ...headers });
 
-  app.decorate('messageService', {
-    send: vi.fn(async () => mockMessage.id),
-    markRead: vi.fn()
-  } as any);
-  const messagesReadPort = {
-    findById: vi.fn(async () => mockMessage),
-    listPage: vi.fn(async () => ({ items: [], nextCursor: undefined })),
-    list: vi.fn(async () => [])
-  };
-  app.decorate('messagesReadPort', messagesReadPort as any);
-  registerErrorHandler(app);
-  await registerMessageRoutes(app);
-  return app;
-};
+describe('message routes', () => {
+  it('accepts a message send request', async () => {
+    const app = await createTestMessagingServer();
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/messages',
+        headers: withAuth(),
+        payload: {
+          conversationId: '00000000-0000-0000-0000-000000000000',
+          senderId: '00000000-0000-0000-0000-000000000001',
+          type: 'text',
+          encryptedContent: 'SGVsbG8=',
+          payloadSizeBytes: 5,
+        },
+      });
 
-describe('POST /v1/messages', () => {
-  beforeEach(() => {
-    vi.spyOn(messagingMetrics.messageSizeBytes, 'observe').mockImplementation(() => undefined);
-    vi.spyOn(messagingMetrics.idempotencyHits, 'inc').mockImplementation(() => undefined);
+      if (response.statusCode >= 400) {
+        console.error('POST /v1/messages error', response.payload);
+        console.error('Mock message', app.messagesReadPort.findById.mock.results);
+      }
+
+      expect([200, 201]).toContain(response.statusCode);
+    } finally {
+      await app.close();
+    }
   });
 
-  it('returns 201 on first send', async () => {
-    const app = await createServer();
-    const response = await app.inject({
-      method: 'POST',
-      url: '/',
-      headers: {
-        'x-device-id': 'device-1',
-        'x-session-id': 'session-1'
-      },
-      payload: {
-        conversationId: '00000000-0000-0000-0000-000000000000',
-        senderId: '00000000-0000-0000-0000-000000000001',
-        type: 'text',
-        encryptedContent: 'SGVsbG8=',
-        payloadSizeBytes: 5
-      }
-    });
-
-    if (![200, 201].includes(response.statusCode)) {
-      console.error('response payload', response.body);
+  it('validates message payload', async () => {
+    const app = await createTestMessagingServer({ injectAuth: false });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/messages',
+        payload: {
+          conversationId: 'invalid',
+          senderId: '00000000-0000-0000-0000-000000000001',
+          type: 'text',
+          encryptedContent: 'SGVsbG8=',
+          payloadSizeBytes: 5,
+        },
+      });
+      expect(response.statusCode).toBe(400);
+    } finally {
+      await app.close();
     }
+  });
 
-    expect(response.statusCode).toBe(200);
+  it('returns a message by id', async () => {
+    const app = await createTestMessagingServer();
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/v1/messages/11111111-1111-1111-1111-111111111111',
+        headers: withAuth(),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().id).toBe(TEST_MESSAGE_ID);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('lists messages for a conversation', async () => {
+    const app = await createTestMessagingServer();
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/v1/messages/conversation/00000000-0000-0000-0000-000000000000',
+        headers: withAuth(),
+      });
+
+      if (response.statusCode >= 400) {
+        console.error('GET /v1/messages/conversation error', response.payload);
+        console.error('Mock listPage', app.messagesReadPort.listPage.mock.results);
+      }
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(Array.isArray(body.items)).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('marks messages as read', async () => {
+    const app = await createTestMessagingServer();
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/messages/read',
+        headers: withAuth(),
+        payload: {
+          messageIds: ['11111111-1111-1111-1111-111111111111'],
+          actorId: '00000000-0000-0000-0000-000000000001',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().updated).toBe(1);
+    } finally {
+      await app.close();
+    }
   });
 });
 

@@ -1,11 +1,11 @@
-import type { MessageEnvelope } from '../schemas';
-import { createRateLimiters } from '../rateLimiter';
-import { Metrics } from '../metrics';
-import { Connection } from '../connection';
-import { persistConnectionSnapshot } from './snapshot';
-import type { WebSocketHubOptions } from '../types';
+import type { MessageEnvelope } from '../schemas.js';
+import { createRateLimiters } from '../rateLimiter.js';
+import { Metrics } from '../metrics.js';
+import { Connection } from '../connection.js';
+import { persistConnectionSnapshot } from './snapshot.js';
+import type { WebSocketHubOptions } from '../types.js';
 import { randomUUID } from 'node:crypto';
-import { logWithContext } from '../logging';
+import { logWithContext } from '../logging.js';
 
 const DEFAULT_MAX_BUFFERED_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RESUME_TTL_MS = 15 * 60_000;
@@ -26,9 +26,9 @@ export interface HubState {
   readonly connectionLimiter?: ReturnType<typeof createRateLimiters>['connectionLimiter'];
   readonly messageLimiter?: ReturnType<typeof createRateLimiters>['messageLimiter'];
   readonly authenticate: WebSocketHubOptions['authenticate'];
-  readonly loadResumeState: WebSocketHubOptions['loadResumeState'];
-  readonly persistResumeState: WebSocketHubOptions['persistResumeState'];
-  readonly dropResumeState: WebSocketHubOptions['dropResumeState'];
+  loadResumeState: WebSocketHubOptions['loadResumeState'];
+  persistResumeState: WebSocketHubOptions['persistResumeState'];
+  dropResumeState: WebSocketHubOptions['dropResumeState'];
   readonly onClose?: WebSocketHubOptions['onClose'];
   readonly broadcast: (message: MessageEnvelope) => void;
   readonly size: () => number;
@@ -193,4 +193,14 @@ export function createHubState(options: WebSocketHubOptions): HubState {
     safeSendWithBackpressure,
     nextResumeToken
   };
+}
+
+export function configureResumeStore(state: HubState, store: {
+  loadResumeState: WebSocketHubOptions['loadResumeState'];
+  persistResumeState: WebSocketHubOptions['persistResumeState'];
+  dropResumeState: WebSocketHubOptions['dropResumeState'];
+}) {
+  state.loadResumeState = store.loadResumeState;
+  state.persistResumeState = store.persistResumeState;
+  state.dropResumeState = store.dropResumeState;
 }

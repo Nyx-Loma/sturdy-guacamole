@@ -115,7 +115,8 @@ const mutateSettings = (
     .then(() => recordAudit(sql, buildAuditRecord(id, actor.id, 'settings_updated', timestamp, settings)));
 };
 
-const mutateMetadata = (
+// eslint-disable-next-line complexity
+const mutateMetadata = async (
   sql: SqlClient,
   now: () => Date,
   id: Uuid,
@@ -123,19 +124,30 @@ const mutateMetadata = (
   actor: Actor
 ) => {
   const timestamp = now().toISOString();
-  return sql
-    .query(
-      `
+  const expectedVersion = metadata.expectedVersion;
+  const result = await sql.query(
+    `
       update messaging.conversations
       set name = coalesce($2, name),
           description = coalesce($3, description),
           avatar_url = coalesce($4, avatar_url),
-          updated_at = $5
+          updated_at = $5,
+          version = version + 1
       where id = $1
+      ${expectedVersion !== undefined ? 'and version = $6' : ''}
     `,
-      [id, metadata.name ?? null, metadata.description ?? null, metadata.avatarUrl ?? null, timestamp]
-    )
-    .then(() => recordAudit(sql, buildAuditRecord(id, actor.id, 'metadata_updated', timestamp, metadata)));
+    expectedVersion !== undefined
+      ? [id, metadata.name ?? null, metadata.description ?? null, metadata.avatarUrl ?? null, timestamp, expectedVersion]
+      : [id, metadata.name ?? null, metadata.description ?? null, metadata.avatarUrl ?? null, timestamp]
+  );
+
+  if ((result as { rowCount?: number }).rowCount === 0 && expectedVersion !== undefined) {
+    const error = new Error('Version conflict');
+    (error as { code: string }).code = 'VERSION_CONFLICT';
+    throw error;
+  }
+
+  await recordAudit(sql, buildAuditRecord(id, actor.id, 'metadata_updated', timestamp, metadata));
 };
 
 const mutateSoftDelete = (

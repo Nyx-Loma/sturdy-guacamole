@@ -158,6 +158,40 @@ const consumerPelReclaimedTotal = new Counter({
   help: 'Messages reclaimed from stale consumers via XAUTOCLAIM'
 });
 
+// WebSocket backpressure metrics
+const wsQueueDepth = new Gauge({
+  name: 'ws_queue_depth',
+  help: 'WebSocket per-socket/backpressure queue depth'
+});
+
+const wsDroppedTotal = new Counter({
+  name: 'ws_dropped_total',
+  help: 'WebSocket messages dropped due to backpressure',
+  labelNames: ['reason']
+});
+
+// Circuit breaker state transitions
+const breakerOpened = new Counter({
+  name: 'messaging_breaker_opened_total',
+  help: 'Circuit breaker opened events',
+  labelNames: ['name'],
+  registers: [metricsRegistry]
+});
+
+const breakerHalfOpen = new Counter({
+  name: 'messaging_breaker_half_open_total',
+  help: 'Circuit breaker half-open transitions',
+  labelNames: ['name'],
+  registers: [metricsRegistry]
+});
+
+const breakerClosed = new Counter({
+  name: 'messaging_breaker_closed_total',
+  help: 'Circuit breaker re-closed events',
+  labelNames: ['name'],
+  registers: [metricsRegistry]
+});
+
 metricsRegistry.registerMetric(requestCounter);
 metricsRegistry.registerMetric(requestDurationMs);
 metricsRegistry.registerMetric(payloadRejects);
@@ -186,6 +220,11 @@ metricsRegistry.registerMetric(dlqWriteFailuresTotal);
 metricsRegistry.registerMetric(consumerPelSize);
 metricsRegistry.registerMetric(consumerReorderBufferSize);
 metricsRegistry.registerMetric(consumerPelReclaimedTotal);
+metricsRegistry.registerMetric(wsQueueDepth);
+metricsRegistry.registerMetric(wsDroppedTotal);
+metricsRegistry.registerMetric(breakerOpened);
+metricsRegistry.registerMetric(breakerHalfOpen);
+metricsRegistry.registerMetric(breakerClosed);
 
 // Stage 3A: Conversation metrics
 const conversationsCreatedTotal = new Counter({
@@ -232,6 +271,12 @@ const participantCacheMisses = new Counter({
   registers: [metricsRegistry]
 });
 
+const participantCacheErrors = new Counter({
+  name: 'messaging_participant_cache_errors_total',
+  help: 'Participant cache errors (fail-closed)',
+  registers: [metricsRegistry]
+});
+
 // Stage 3D: Security metrics
 const securityDeniedTotal = new Counter({
   name: 'sanctum_security_denied_total',
@@ -253,6 +298,83 @@ const rateLimitExceeded = new Counter({
   registers: [metricsRegistry]
 });
 
+const authRequestsTotal = new Counter({
+  name: 'sanctum_auth_requests_total',
+  help: 'Auth middleware outcomes',
+  labelNames: ['outcome'],
+  registers: [metricsRegistry]
+});
+
+const authLatencyMs = new Histogram({
+  name: 'sanctum_auth_latency_ms',
+  help: 'Auth middleware latency in milliseconds',
+  buckets: [1, 5, 10, 20, 50, 100, 250, 500, 1000],
+  registers: [metricsRegistry]
+});
+
+const authJwksFetchFailures = new Counter({
+  name: 'sanctum_auth_jwks_errors_total',
+  help: 'JWKS fetch failures',
+  registers: [metricsRegistry]
+});
+
+const authJwksCacheHits = new Counter({
+  name: 'sanctum_auth_jwks_cache_hits_total',
+  help: 'JWKS cache hits',
+  registers: [metricsRegistry]
+});
+
+const authJwksCacheMisses = new Counter({
+  name: 'sanctum_auth_jwks_cache_misses_total',
+  help: 'JWKS cache misses',
+  registers: [metricsRegistry]
+});
+
+const authenticatedRequestsTotal = new Counter({
+  name: 'sanctum_auth_success_total',
+  help: 'Requests that passed auth middleware',
+  registers: [metricsRegistry]
+});
+
+// Postgres connection pool metrics
+const poolTotalCount = new Gauge({
+  name: 'messaging_postgres_pool_total_count',
+  help: 'Total connections in pool (active + idle)',
+  registers: [metricsRegistry],
+});
+
+const poolIdleCount = new Gauge({
+  name: 'messaging_postgres_pool_idle_count',
+  help: 'Idle connections available',
+  registers: [metricsRegistry],
+});
+
+const poolWaitingCount = new Gauge({
+  name: 'messaging_postgres_pool_waiting_count',
+  help: 'Requests waiting for connection',
+  registers: [metricsRegistry],
+});
+
+const poolAcquireWaitMs = new Histogram({
+  name: 'messaging_postgres_pool_acquire_wait_ms',
+  help: 'Time spent waiting to acquire connection',
+  buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000],
+  registers: [metricsRegistry],
+});
+
+const poolAcquireTimeouts = new Counter({
+  name: 'messaging_postgres_pool_acquire_timeouts_total',
+  help: 'Connection acquisition timeouts',
+  registers: [metricsRegistry],
+});
+
+const poolConnectErrors = new Counter({
+  name: 'messaging_postgres_pool_connect_errors_total',
+  help: 'Failed connection attempts',
+  labelNames: ['error_type'],
+  registers: [metricsRegistry],
+});
+
 metricsRegistry.registerMetric(conversationsCreatedTotal);
 metricsRegistry.registerMetric(conversationsDeletedTotal);
 metricsRegistry.registerMetric(conversationVersionConflicts);
@@ -260,9 +382,16 @@ metricsRegistry.registerMetric(participantsAddedTotal);
 metricsRegistry.registerMetric(participantsRemovedTotal);
 metricsRegistry.registerMetric(participantCacheHits);
 metricsRegistry.registerMetric(participantCacheMisses);
+metricsRegistry.registerMetric(participantCacheErrors);
 metricsRegistry.registerMetric(securityDeniedTotal);
 metricsRegistry.registerMetric(authenticationFailures);
 metricsRegistry.registerMetric(rateLimitExceeded);
+metricsRegistry.registerMetric(authRequestsTotal);
+metricsRegistry.registerMetric(authLatencyMs);
+metricsRegistry.registerMetric(authJwksFetchFailures);
+metricsRegistry.registerMetric(authJwksCacheHits);
+metricsRegistry.registerMetric(authJwksCacheMisses);
+metricsRegistry.registerMetric(authenticatedRequestsTotal);
 
 export const messagingMetrics = {
   requestCounter,
@@ -293,6 +422,13 @@ export const messagingMetrics = {
   consumerPelSize,
   consumerReorderBufferSize,
   consumerPelReclaimedTotal,
+  // WebSocket backpressure
+  wsQueueDepth,
+  wsDroppedTotal,
+  // Circuit breaker
+  breakerOpened,
+  breakerHalfOpen,
+  breakerClosed,
   // Stage 3A
   conversationsCreatedTotal,
   conversationsDeletedTotal,
@@ -302,10 +438,24 @@ export const messagingMetrics = {
   participantsRemovedTotal,
   participantCacheHits,
   participantCacheMisses,
+  participantCacheErrors,
   // Stage 3D
   securityDeniedTotal,
   authenticationFailures,
   rateLimitExceeded,
+  authRequestsTotal,
+  authLatencyMs,
+  authJwksFetchFailures,
+  authJwksCacheHits,
+  authJwksCacheMisses,
+  authenticatedRequestsTotal,
+  // Postgres pool metrics
+  poolTotalCount,
+  poolIdleCount,
+  poolWaitingCount,
+  poolAcquireWaitMs,
+  poolAcquireTimeouts,
+  poolConnectErrors,
 };
 
 

@@ -1,0 +1,36 @@
+{
+  "title": "Messaging Dispatcher",
+  "uid": "messaging-dispatcher",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Outbox sent (rps)",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "sum(rate(messaging_dispatch_published_total[5m]))",
+          "legendFormat": "sent"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Payload rejects / DLQ (rps)",
+      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "sum(rate(messaging_payload_rejects_total[5m]))", "legendFormat": "rejects" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Idempotency hits (5m)",
+      "gridPos": { "x": 0, "y": 12, "w": 6, "h": 4 },
+      "targets": [ { "expr": "sum(rate(idempotency_hits_total[5m]))", "legendFormat": "idempotency" } ]
+    }
+  ]
+}
+
+

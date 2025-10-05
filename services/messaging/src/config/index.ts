@@ -27,13 +27,25 @@ export const MessagingConfigSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     HTTP_HOST: z.string().default('0.0.0.0'),
-    HTTP_PORT: NUMBER_FROM_STRING(z.number().int().positive()).default(8083),
+    HTTP_PORT: NUMBER_FROM_STRING(z.number().int().nonnegative()).default(8083),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    // JWT Authentication Configuration
+    JWT_JWKS_URL: z.string().url().optional(),
+    JWT_PUBLIC_KEY: z.string().optional(),
+    JWT_ISSUER: z.string().min(1),
+    JWT_AUDIENCE: z.string().min(1),
+    JWT_ALGS: z.string().default('RS256,ES256'),
+    JWT_CLOCK_SKEW: NUMBER_FROM_STRING(z.number().int().nonnegative()).default(60),
+    JWT_JWKS_CACHE_TTL_MS: NUMBER_FROM_STRING(z.number().int().positive()).default(600_000),
+    JWT_JWKS_FETCH_TIMEOUT_MS: NUMBER_FROM_STRING(z.number().int().positive()).default(2_000),
+    // Service Configuration
     STORAGE_DRIVER: z.enum(['memory', 'postgres']).default('memory'),
     MESSAGING_USE_STORAGE: z.enum(['on', 'off']).default('off'),
     POSTGRES_URL: z.string().url().optional(),
     POSTGRES_SCHEMA: z.string().default('messaging'),
     POSTGRES_TABLE_MESSAGES: z.string().default('messages'),
+    POSTGRES_POOL_MAX: NUMBER_FROM_STRING(z.number().int().positive()).default(100),
+    POSTGRES_POOL_MIN: NUMBER_FROM_STRING(z.number().int().positive()).default(10),
     REDIS_URL: z.string().url().optional(),
     REDIS_STREAM_URL: z.string().url().optional(),
     REDIS_STREAM_NAMESPACE: z.string().default('message-streams'),
@@ -68,6 +80,7 @@ export const MessagingConfigSchema = z
     PAYLOAD_MAX_BYTES: NUMBER_FROM_STRING(z.number().int().positive().max(256 * 1024)).default(65_536),
     IDEMPOTENCY_TTL_HOURS: NUMBER_FROM_STRING(z.number().int().positive().max(168)).default(24),
     IDEMPOTENCY_SCOPE: z.enum(['conversation', 'sender']).default('conversation'),
+    RATE_LIMIT_MODE: z.enum(['off', 'lenient', 'prod']).default('prod'),
     RATE_LIMIT_MAX: NUMBER_FROM_STRING(z.number().int().positive()).default(120),
     RATE_LIMIT_INTERVAL_MS: NUMBER_FROM_STRING(z.number().int().positive()).default(60_000),
     RATE_LIMIT_BURST: NUMBER_FROM_STRING(z.number().int().positive()).default(60),
@@ -83,8 +96,27 @@ export const MessagingConfigSchema = z
     PARTICIPANT_ENFORCEMENT_ENABLED: BOOL.default(false),
     PARTICIPANT_CACHE_ENABLED: BOOL.default(true),
     TARGETED_BROADCAST_ENABLED: BOOL.default(true),
+    CORS_ALLOWED_ORIGINS: z.string().default('https://app.sanctum.chat'),
+    CORS_ALLOW_CREDENTIALS: BOOL.default(true)
   })
   .superRefine((cfg, ctx) => {
+    // JWT Configuration Validation
+    if (!cfg.JWT_JWKS_URL && !cfg.JWT_PUBLIC_KEY) {
+      ctx.addIssue({
+        path: ['JWT_JWKS_URL'],
+        code: z.ZodIssueCode.custom,
+        message: 'Either JWT_JWKS_URL or JWT_PUBLIC_KEY must be provided'
+      });
+    }
+    if (cfg.JWT_JWKS_URL && cfg.JWT_PUBLIC_KEY) {
+      ctx.addIssue({
+        path: ['JWT_JWKS_URL'],
+        code: z.ZodIssueCode.custom,
+        message: 'Provide only one of JWT_JWKS_URL or JWT_PUBLIC_KEY, not both'
+      });
+    }
+    
+    // Storage Configuration Validation
     if (cfg.MESSAGING_USE_STORAGE === 'on' && cfg.STORAGE_DRIVER !== 'postgres') {
       ctx.addIssue({
         path: ['STORAGE_DRIVER'],

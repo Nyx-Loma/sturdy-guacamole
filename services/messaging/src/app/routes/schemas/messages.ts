@@ -6,8 +6,6 @@ const IsoDateTime = z.string().datetime();
 const Base64 = z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/);
 
 export const SendMessageHeadersSchema = z.object({
-  'x-device-id': z.string().optional(),
-  'x-session-id': z.string().optional(),
   'idempotency-key': z.string().min(8).max(128).optional()
 });
 
@@ -54,7 +52,6 @@ export const ListMessagesResponseSchema = z.object({
 
 export const MarkReadRequestSchema = z.object({
   messageIds: z.array(Uuid),
-  actorId: Uuid,
   readAt: IsoDateTime.optional()
 });
 

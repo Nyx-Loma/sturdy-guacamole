@@ -23,13 +23,14 @@ interface BucketState {
 }
 
 const makeBucketKey = (scope: RateKeyScope, request: FastifyRequest) => {
+  const auth = (request as { auth?: import('../domain/types/auth.types').AuthContext }).auth;
   switch (scope) {
     case 'device':
-      return request.headers['x-device-id']?.toString() ?? `device:${request.ip}`;
+      return auth ? `device:${auth.deviceId}` : request.headers['x-device-id']?.toString() ?? `device:${request.ip}`;
     case 'session':
-      return request.headers['x-session-id']?.toString() ?? `session:${request.ip}`;
+      return auth ? `session:${auth.sessionId}` : request.headers['x-session-id']?.toString() ?? `session:${request.ip}`;
     case 'user':
-      return request.headers['x-user-id']?.toString() ?? `user:${request.ip}`;
+      return auth ? `user:${auth.userId}` : request.headers['x-user-id']?.toString() ?? `user:${request.ip}`;
     case 'ip':
     default:
       return `ip:${request.ip ?? 'unknown'}`;

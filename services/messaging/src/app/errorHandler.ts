@@ -11,6 +11,10 @@ import {
 type FastifyErrorHandler = Parameters<FastifyInstance['setErrorHandler']>[0];
 
 const mapErrorToStatus = (error: Error): { statusCode: number; code: string } => {
+  if ((error as { code?: string }).code === 'FST_ERR_VALIDATION') {
+    return { statusCode: 400, code: 'VALIDATION_ERROR' };
+  }
+
   if (error instanceof MessagingError) {
     return { statusCode: error.statusCode, code: error.code };
   }

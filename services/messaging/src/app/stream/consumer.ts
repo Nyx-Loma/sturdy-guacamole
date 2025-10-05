@@ -3,6 +3,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { WebSocketHub } from '@sanctum/transport';
 import { randomUUID } from 'node:crypto';
 import { messagingMetrics } from '../../observability/metrics';
+import { BoundedQueue } from '../../ws/backpressure';
+import { createCircuitBreaker } from '../../infra/circuitbreakers';
 
 export interface StreamEvent {
   v: number;
@@ -75,6 +77,21 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
     }
   };
 
+  // Breaker for DLQ writes to Postgres
+  const dlqBreaker = createCircuitBreaker(
+    'pg_dlq_insert',
+    async (query: string, params: unknown[]) => opts.pgPool.query(query, params),
+    { timeoutMs: 2000, failureThreshold: 3, halfOpenAfterMs: 5000 },
+    {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      breakerOpened: { inc: (labels) => messagingMetrics.breakerOpened.inc(labels as any) },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      breakerHalfOpen: { inc: (labels) => messagingMetrics.breakerHalfOpen.inc(labels as any) },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      breakerClosed: { inc: (labels) => messagingMetrics.breakerClosed.inc(labels as any) },
+    }
+  );
+
   const parseEvent = (fields: string[]): StreamEvent | null => {
     try {
       // Redis XREADGROUP returns: ['message_id', <uuid>, 'conversation_id', <uuid>, 'payload', <json>]
@@ -131,6 +148,26 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
     }
   };
 
+  // Simple backpressure buffer per conversation to smooth bursts
+  const convoQueues = new Map<string, BoundedQueue<StreamEvent>>();
+
+  const getQueue = (conversationId: string) => {
+    let q = convoQueues.get(conversationId);
+    if (!q) {
+      q = new BoundedQueue<StreamEvent>({
+        maxQueue: 100,
+        dropPolicy: 'drop_old',
+        metrics: {
+          wsQueueDepth: { set: (v: number) => messagingMetrics.wsQueueDepth.set(v) },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          wsDroppedTotal: { inc: (labels?: Record<string, unknown>) => messagingMetrics.wsDroppedTotal.inc(labels as any) },
+        },
+      });
+      convoQueues.set(conversationId, q);
+    }
+    return q;
+  };
+
   const broadcastEvent = async (event: StreamEvent) => {
     // Idempotency check
     if (seenMessageIds.has(event.messageId)) {
@@ -169,7 +206,18 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
         },
       };
 
-      opts.hub.broadcast(envelope);
+      // Backpressure-aware send
+      const q = getQueue(event.conversationId);
+      const accepted = q.push(event);
+      if (!accepted) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messagingMetrics.wsDroppedTotal.inc({ reason: 'new' } as any);
+      }
+      q.drain(() => {
+        opts.hub.broadcast(envelope);
+        // Return true to keep draining
+        return true;
+      });
       seenMessageIds.add(event.messageId);
       messagingMetrics.consumerDeliveredTotal.inc();
       
@@ -186,7 +234,7 @@ export const createConsumer = (opts: ConsumerOptions): Consumer => {
 
   const writeToDLQ = async (pending: PendingMessage, reason: string): Promise<void> => {
     try {
-      await opts.pgPool.query(`
+      await dlqBreaker(`
         INSERT INTO messaging.message_dlq (
           source_stream, group_name, event_id, aggregate_id, 
           occurred_at, payload, reason, attempts

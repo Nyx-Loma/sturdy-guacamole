@@ -1,11 +1,11 @@
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
-import fastifyCors from '@fastify/cors';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { loadConfig } from '../config/index.js';
 import { registerRoutes } from './routes/index.js';
 import { createInMemoryDirectoryRepository } from '../repositories/inMemoryRepository.js';
+import { registerCors } from '../plugins/cors/registerCors.js';
 import { createPostgresDirectoryRepository, runMigrations } from '../repositories/postgresRepository.js';
 import { createDirectoryService } from '../services/directoryService.js';
 import { registerErrorHandler } from './errorHandler';
@@ -121,7 +121,13 @@ export const createServer = (): Server => {
   return {
     app,
     async start() {
-      await app.register(fastifyCors, { origin: false });
+      await registerCors(app, {
+        allowedOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? '')
+          .split(',')
+          .map((origin) => origin.trim())
+          .filter(Boolean),
+        allowCredentials: true
+      });
       await wireIfNeeded();
       await app.listen({ host: config.HTTP_HOST, port: config.HTTP_PORT });
       app.log.info(`📚 OpenAPI documentation available at http://${config.HTTP_HOST}:${config.HTTP_PORT}/docs`);
@@ -132,7 +138,12 @@ export const createServer = (): Server => {
   };
 };
 
-if (process.argv[1] === new URL(import.meta.url).pathname) {
+// Guard start when executed directly without relying on import.meta
+// Compatible with commonjs/esm builds
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+if (process.argv[1] && (globalThis as any).process?.argv?.[1] === process.argv[1]) {
   const server = createServer();
   server.start().catch((error) => {
     server.app.log.error(error, 'failed to start server');

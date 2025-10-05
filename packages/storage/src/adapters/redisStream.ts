@@ -35,6 +35,9 @@ export class RedisStreamAdapter implements StreamAdapter {
   private readonly redis: Redis;
   private readonly subscriber: Redis;
   private readonly circuitBreaker: CircuitBreaker;
+  private initialized = false;
+  private initializing: Promise<void> | null = null;
+  private disposed = false;
 
   constructor(options: RedisStreamAdapterOptions) {
     this.options = {
@@ -61,8 +64,19 @@ export class RedisStreamAdapter implements StreamAdapter {
   }
 
   async init(): Promise<void> {
-    await this.redis.connect();
-    await this.subscriber.connect();
+    if (this.initialized) {
+      return;
+    }
+    if (this.initializing) {
+      return this.initializing;
+    }
+    this.initializing = (async () => {
+      await this.redis.connect();
+      await this.subscriber.connect();
+      this.initialized = true;
+      this.initializing = null;
+    })();
+    return this.initializing;
   }
 
   async publish(
@@ -187,8 +201,20 @@ export class RedisStreamAdapter implements StreamAdapter {
   }
 
   async dispose(): Promise<void> {
-    await this.subscriber.quit();
-    await this.redis.quit();
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    try {
+      await this.subscriber.quit();
+    } catch {
+      // Ignore quit errors during disposal
+    }
+    try {
+      await this.redis.quit();
+    } catch {
+      // Ignore quit errors during disposal
+    }
   }
 
   private async ensureGroup(streamKey: string, group: string): Promise<void> {

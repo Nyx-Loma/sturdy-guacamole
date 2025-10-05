@@ -29,7 +29,7 @@ afterAll(async () => {
   }
 });
 
-describe("PostgresRecordAdapter integration", () => {
+describe.skipIf(!process.env.STORAGE_TEST_POSTGRES_URL)("PostgresRecordAdapter integration", () => {
   it("initializes schema and performs CRUD with concurrency", async () => {
     const availability = getIntegrationAvailability();
     if (!availability?.ready) {

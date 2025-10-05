@@ -13,13 +13,13 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@sanctum/config": ["packages/config/src/index"],
-      "@sanctum/transport": ["packages/transport/src/index"],
-      "@sanctum/crypto": ["packages/crypto/src/index"],
+      "@sanctum/config": ["packages/config/dist/index"],
+      "@sanctum/transport": ["packages/transport/dist/index"],
+      "@sanctum/crypto": ["packages/crypto/dist/index"],
+      "@sanctum/crypto/*": ["packages/crypto/dist/*"],
       "@sanctum/directory/config": ["services/directory/src/config/index"],
-      "@sanctum/config/*": ["packages/config/src/*"],
-      "@sanctum/transport/*": ["packages/transport/src/*"],
-      "@sanctum/crypto/*": ["packages/crypto/src/*"],
+      "@sanctum/config/*": ["packages/config/dist/*"],
+      "@sanctum/transport/*": ["packages/transport/dist/*"],
       "@sanctum/directory/*": ["services/directory/src/*"]
     }
   },

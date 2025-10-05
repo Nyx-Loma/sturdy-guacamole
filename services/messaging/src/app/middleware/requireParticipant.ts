@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ParticipantCache } from '../stream/participantCache';
 import { messagingMetrics } from '../../observability/metrics';
+import type { AuthContext } from '../../domain/types/auth.types';
 
 /**
  * Authorization middleware for messaging routes
@@ -71,12 +72,6 @@ class RateLimiter {
   }
 }
 
-export interface AuthContext {
-  userId: string;
-  deviceId: string;
-  sessionId?: string;
-}
-
 export interface NotAParticipantError {
   code: 'NOT_A_PARTICIPANT';
   message: string;
@@ -91,22 +86,7 @@ export interface NotAParticipantError {
  * For now, uses headers as temporary measure
  */
 function extractAuthContext(request: FastifyRequest): AuthContext | null {
-  // TODO: Replace with proper JWT validation in Stage 4
-  // For now, derive from headers (same as conversations.ts)
-  const headers = request.headers as Record<string, string | undefined>;
-  const deviceId = headers['x-device-id'];
-  const sessionId = headers['x-session-id'];
-  
-  if (!deviceId) {
-    return null;
-  }
-
-  // Temporary: use deviceId as userId (Stage 4 will use JWT claims)
-  return {
-    userId: deviceId,
-    deviceId,
-    sessionId,
-  };
+  return (request as { auth?: AuthContext }).auth ?? null;
 }
 
 /**
@@ -136,12 +116,15 @@ function extractConversationId(request: FastifyRequest): string | null {
 
 /**
  * Check if user is an active participant in the conversation
- * Uses participant cache for fast lookups
+ * Uses participant cache for fast lookups with DB fallback
+ * SECURITY: Fails closed - denies access on any error
  */
 async function isParticipant(
   conversationId: string,
   userId: string,
-  cache: ParticipantCache
+  cache: ParticipantCache,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  participantsReadPort?: any
 ): Promise<boolean> {
   try {
     const participantUserIds = await cache.get(conversationId);
@@ -152,28 +135,63 @@ async function isParticipant(
       return participantUserIds.includes(userId);
     }
     
-    // Cache miss - need to fetch from DB
+    // Cache miss - fetch from DB if port is available
     messagingMetrics.participantCacheMisses.inc();
     
-    // TODO: Fetch from DB via port in full integration
-    // For now, return false (will be wired up in integration phase)
-    // const participants = await participantsReadPort.list(conversationId);
-    // const userIds = participants.map(p => p.userId);
-    // await cache.set(conversationId, userIds);
-    // return userIds.includes(userId);
+    if (!participantsReadPort) {
+      // No DB port available - FAIL CLOSED for security
+      messagingMetrics.participantCacheErrors.inc();
+      return false;
+    }
     
-    return false;
-  } catch {
-    // Log error but don't block request - fail open for now
-    // In production, you may want to fail closed (return false)
-    return true; // Temporary: fail open during development
+    // Fetch from DB and populate cache
+    try {
+      const participants = await participantsReadPort.list(conversationId, { includeLeft: false });
+      const userIds = participants.map((p: { userId: string }) => p.userId);
+      
+      // Populate cache for future requests
+      await cache.set(conversationId, userIds);
+      
+      const isMember = userIds.includes(userId);
+      
+      // Negative caching: cache non-membership briefly to prevent DB spam
+      if (!isMember) {
+        // TODO: Implement negative caching with short TTL (30-60s)
+        // This prevents repeated DB queries for attackers trying invalid conversations
+      }
+      
+      return isMember;
+    } catch (dbError) {
+      // DB query failed - FAIL CLOSED
+      messagingMetrics.participantCacheErrors.inc();
+      throw dbError; // Re-throw to be caught by outer catch
+    }
+  } catch (error) {
+    // CRITICAL: Any error in authorization check must DENY access
+    // This prevents cache failures, DB outages, or bugs from bypassing authz
+    messagingMetrics.participantCacheErrors.inc();
+    
+    // Log structured event for security monitoring
+    console.error({
+      event: 'participant_check_failed',
+      conversationId,
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+      action: 'access_denied'
+    });
+    
+    return false; // FAIL CLOSED - deny access on any error
   }
 }
 
 /**
  * Create authorization middleware factory
  */
-export function createRequireParticipant(cache: ParticipantCache) {
+export function createRequireParticipant(
+  cache: ParticipantCache,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  participantsReadPort?: any
+) {
   // Create rate limiter instance (shared across all requests)
   const rateLimiter = new RateLimiter(100, 60_000); // 100 req/min
   
@@ -236,7 +254,12 @@ export function createRequireParticipant(cache: ParticipantCache) {
     }
 
     // 4. AUTHORIZATION CHECK (participant verification)
-    const authorized = await isParticipant(conversationId, authContext.userId, cache);
+    const authorized = await isParticipant(
+      conversationId,
+      authContext.userId,
+      cache,
+      participantsReadPort
+    );
     
     if (!authorized) {
       // User is NOT a participant - deny access

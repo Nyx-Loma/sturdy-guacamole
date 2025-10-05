@@ -3,11 +3,21 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "clean": "rimraf dist coverage .vite .eslintcache"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./backup/derive": "./src/backup/derive.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./backup/derive": {
+      "types": "./dist/backup/derive.d.ts",
+      "default": "./dist/backup/derive.js"
+    }
   }
 }

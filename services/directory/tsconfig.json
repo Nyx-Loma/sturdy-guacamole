@@ -9,7 +9,7 @@
     "noUncheckedIndexedAccess": true
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "coverage"]
+  "exclude": ["dist", "coverage", "**/*.test.ts", "**/__tests__/**", "**/tests/**"]
 }
 
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { encodeCursor, parseCursor } from './schemas/cursor';
+import { parseCursor } from './schemas/cursor';
 import {
   AddParticipantParamsSchema,
   AddParticipantBodySchema,
@@ -16,61 +16,95 @@ import {
  * Stage 3B implementation with versioned cache and pubsub invalidation
  */
 export const registerParticipantRoutes = async (app: FastifyInstance) => {
-  
+  const requireAdmin = app.participantEnforcement?.requireAdmin;
+  const requireParticipantOrSelf = app.participantEnforcement?.requireParticipantOrSelf;
+
+  const withAdminGuard = <T extends FastifyRequest = FastifyRequest>(handler: (request: T, reply: FastifyReply) => Promise<FastifyReply | void>) => {
+    if (!requireAdmin) return handler;
+    return async (request: T, reply: FastifyReply) => {
+      await requireAdmin(request, reply);
+      if (reply.sent) return;
+      return handler(request, reply);
+    };
+  };
+
+  const withParticipantOrSelfGuard = <T extends FastifyRequest = FastifyRequest>(handler: (request: T, reply: FastifyReply) => Promise<FastifyReply | void>) => {
+    if (!requireParticipantOrSelf) return handler;
+    return async (request: T, reply: FastifyReply) => {
+      await requireParticipantOrSelf(request, reply);
+      if (reply.sent) return;
+      return handler(request, reply);
+    };
+  };
+
+  const actorFromRequest = (request: FastifyRequest) => {
+    const auth = (request as { auth?: import('../../domain/types/auth.types').AuthContext }).auth;
+    if (!auth) return { id: 'system', role: 'system' as const };
+    return { id: auth.userId, role: 'member' as const, deviceId: auth.deviceId, sessionId: auth.sessionId };
+  };
+
+  const mapParticipant = (participant: { userId: string; role: string; joinedAt: string; leftAt: string | null }) => ({
+    userId: participant.userId,
+    role: participant.role === 'owner' || participant.role === 'admin' ? 'admin' : 'member',
+    joinedAt: participant.joinedAt,
+    leftAt: participant.leftAt,
+  });
+
   // ============================================================================
   // POST /v1/conversations/:conversationId/participants - Add participant
   // ============================================================================
-  
-  app.post<{
-    Params: unknown;
-    Body: unknown;
-  }>('/v1/conversations/:conversationId/participants', async (request: FastifyRequest, reply: FastifyReply) => {
+
+  const addParticipantHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const params = AddParticipantParamsSchema.parse(request.params);
-      const body = AddParticipantBodySchema.parse(request.body);
+      const paramsResult = AddParticipantParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return reply.code(400).send({
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid parameters',
+          requestId: request.id,
+        });
+      }
+      const bodyResult = AddParticipantBodySchema.safeParse(request.body);
+      if (!bodyResult.success) {
+        return reply.code(400).send({
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid body payload',
+          requestId: request.id,
+        });
+      }
+      const params = paramsResult.data;
+      const body = bodyResult.data;
 
-      // TODO: Check caller is admin via requireParticipant middleware (Stage 3D)
-      
-      // Check if already a participant
-      // TODO: Query via port
-      // const existing = await app.participantsReadPort.findByUserAndConversation(body.userId, params.conversationId);
-      // if (existing && !existing.leftAt) {
-      //   return reply.code(409).send({
-      //     code: 'ALREADY_PARTICIPANT',
-      //     message: 'User is already an active participant',
-      //   });
-      // }
+      const actor = actorFromRequest(request);
 
-      // Add participant via port
-      // TODO: Replace with actual port call
-      // const participant = await app.participantsWritePort.add({
-      //   conversationId: params.conversationId,
-      //   userId: body.userId,
-      //   role: body.role,
-      // });
+      const existing = await app.conversationsReadPort.findById(params.conversationId);
+      if (!existing) {
+        return reply.code(404).send({
+          code: 'CONVERSATION_NOT_FOUND',
+          message: 'Conversation not found',
+          requestId: request.id,
+        });
+      }
 
-      const participant = {
-        userId: body.userId,
-        role: body.role,
-        joinedAt: new Date().toISOString(),
-        leftAt: null,
-      };
+      const alreadyParticipant = existing.participants.find((participant) => participant.userId === body.userId && !participant.leftAt);
+      if (alreadyParticipant) {
+        return reply.code(409).send({
+          code: 'ALREADY_PARTICIPANT',
+          message: 'User is already an active participant',
+          requestId: request.id,
+        });
+      }
 
-      // Invalidate participant cache
-      // TODO: Increment version counter and publish invalidation
-      // await app.participantCache.invalidate(params.conversationId);
+      await app.conversationsWritePort.updateParticipants(
+        params.conversationId,
+        { add: [{ userId: body.userId, role: body.role }] },
+        actor,
+      );
 
-      // Emit event for real-time notification
-      // TODO: Emit participant_added event to conversation
-      // await app.eventsPublisher.publish({
-      //   type: 'participant_added',
-      //   conversationId: params.conversationId,
-      //   userId: body.userId,
-      //   role: body.role,
-      // });
+      await app.participantCache.invalidate(params.conversationId);
 
       // Increment metrics
-      app.messagingMetrics.participantsAddedTotal.inc();
+      app.messagingMetrics.participantsAddedTotal.inc({ role: body.role });
 
       request.log.info({
         conversationId: params.conversationId,
@@ -78,8 +112,15 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
         role: body.role,
       }, 'participant_added');
 
+      const joinedAt = new Date().toISOString();
+
       const response: AddParticipantResponse = {
-        participant,
+        participant: mapParticipant({
+          userId: body.userId,
+          role: body.role,
+          joinedAt,
+          leftAt: null,
+        }),
       };
 
       return reply.code(201).send(response);
@@ -87,55 +128,63 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
       request.log.error({ err: error }, 'participant_add_failed');
       throw error;
     }
-  });
+  };
+
+  app.post<{ Params: unknown; Body: unknown }>('/conversations/:conversationId/participants', withAdminGuard(addParticipantHandler));
 
   // ============================================================================
   // DELETE /v1/conversations/:conversationId/participants/:userId - Remove
   // ============================================================================
   
-  app.delete<{
-    Params: unknown;
-  }>('/v1/conversations/:conversationId/participants/:userId', async (request: FastifyRequest, reply: FastifyReply) => {
+  const removeParticipantHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const params = RemoveParticipantParamsSchema.parse(request.params);
+      const paramsResult = RemoveParticipantParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return reply.code(400).send({
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid parameters',
+          requestId: request.id,
+        });
+      }
+      const params = paramsResult.data;
 
-      // TODO: Check caller is admin OR removing self via requireParticipant middleware (Stage 3D)
-      
-      // Remove participant (set left_at)
-      // TODO: Replace with actual port call
-      // await app.participantsWritePort.remove({
-      //   conversationId: params.conversationId,
-      //   userId: params.userId,
-      // });
+      const actor = actorFromRequest(request);
+
+      const existing = await app.conversationsReadPort.findById(params.conversationId);
+      if (!existing) {
+        return reply.code(404).send({
+          code: 'CONVERSATION_NOT_FOUND',
+          message: 'Conversation not found',
+          requestId: request.id,
+        });
+      }
+
+      const target = existing.participants.find((participant) => participant.userId === params.userId && !participant.leftAt);
+      if (!target) {
+        return reply.code(404).send({
+          code: 'PARTICIPANT_NOT_FOUND',
+          message: 'Participant not found',
+          requestId: request.id,
+        });
+      }
 
       const leftAt = new Date().toISOString();
 
-      // Check if last participant - if so, soft delete conversation
-      // TODO: Query remaining participants
-      // const remaining = await app.participantsReadPort.countActive(params.conversationId);
-      // if (remaining === 0) {
-      //   await app.conversationsWritePort.softDelete(params.conversationId);
-      // }
+      await app.conversationsWritePort.updateParticipants(
+        params.conversationId,
+        { remove: [params.userId] },
+        actor,
+      );
 
-      // Invalidate participant cache
-      // TODO: Increment version counter and publish invalidation
-      // await app.participantCache.invalidate(params.conversationId);
-
-      // Emit event for real-time notification
-      // TODO: Emit participant_removed event
-      // await app.eventsPublisher.publish({
-      //   type: 'participant_removed',
-      //   conversationId: params.conversationId,
-      //   userId: params.userId,
-      // });
+      await app.participantCache.invalidate(params.conversationId);
 
       // Increment metrics
-      app.messagingMetrics.participantsRemovedTotal.inc();
+      app.messagingMetrics.participantsRemovedTotal.inc({ role: target.role });
 
       request.log.info({
         conversationId: params.conversationId,
         userId: params.userId,
-        leftAt,
+        role: target.role,
       }, 'participant_removed');
 
       const response: RemoveParticipantResponse = {
@@ -148,7 +197,9 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
       request.log.error({ err: error }, 'participant_remove_failed');
       throw error;
     }
-  });
+  };
+
+  app.delete<{ Params: unknown }>('/conversations/:conversationId/participants/:userId', withParticipantOrSelfGuard(removeParticipantHandler));
 
   // ============================================================================
   // GET /v1/conversations/:conversationId/participants - List participants
@@ -157,17 +208,36 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
   app.get<{
     Params: unknown;
     Querystring: unknown;
-  }>('/v1/conversations/:conversationId/participants', async (request: FastifyRequest, reply: FastifyReply) => {
+  }>('/conversations/:conversationId/participants', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      void ListParticipantsParamsSchema.parse(request.params);
-      const query = ListParticipantsQuerySchema.parse(request.query);
+      const paramsResult = ListParticipantsParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return reply.code(400).send({
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid parameters',
+          requestId: request.id,
+        });
+      }
+
+      const queryResult = ListParticipantsQuerySchema.safeParse(request.query);
+      if (!queryResult.success) {
+        return reply.code(400).send({
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid querystring',
+          requestId: request.id,
+        });
+      }
+
+      const params = paramsResult.data;
+      const query = queryResult.data;
 
       // Decode cursor if provided
       if (query.cursor) {
         try {
           const decoded = parseCursor(query.cursor);
-          // TODO: Use decoded.ts and decoded.id for pagination
-          void decoded;
+          query.after = decoded.after ?? query.after;
+          query.before = decoded.before ?? query.before;
+          query.cursor = decoded.token ?? undefined;
         } catch {
           return reply.code(400).send({
             code: 'INVALID_CURSOR',
@@ -177,33 +247,18 @@ export const registerParticipantRoutes = async (app: FastifyInstance) => {
         }
       }
 
-      // Fetch participants via port
-      // TODO: Replace with actual port call
-      // const participants = await app.participantsReadPort.list({
-      //   conversationId: params.conversationId,
-      //   limit: query.limit + 1,
-      //   includeLeft: query.includeLeft,
-      //   afterJoinedAt,
-      //   afterUserId,
-      // });
-
-      // Temporary mock
-      const participants = [];
-
-      // Determine if there's a next page
-      const hasMore = participants.length > query.limit;
-      const items = hasMore ? participants.slice(0, query.limit) : participants;
-
-      // Generate next cursor
-      let nextCursor: string | null = null;
-      if (hasMore && items.length > 0) {
-        const lastItem = items[items.length - 1];
-        nextCursor = encodeCursor(lastItem.joinedAt, lastItem.userId);
-      }
+      const result = await app.conversationService.listParticipants(
+        params.conversationId,
+        {
+          limit: query.limit,
+          cursor: query.cursor,
+          includeLeft: query.includeLeft,
+        }
+      );
 
       const response: ListParticipantsResponse = {
-        participants: items,
-        nextCursor,
+        participants: result.items.map((p) => mapParticipant(p)),
+        nextCursor: result.nextCursor ?? null,
       };
 
       return reply.code(200).send(response);
