@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import type { PersistResumeStateParams, ResumeState } from './types';
+import type { PersistResumeStateParams, ResumeState } from './types.js';
 
 export interface ResumeStore {
   load: (token: string) => Promise<ResumeState | null>;

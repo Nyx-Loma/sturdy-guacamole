@@ -4,14 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "clean": "rimraf dist coverage .vite .eslintcache"
   },
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "exports": {
     "./package.json": "./package.json",
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "dependencies": {

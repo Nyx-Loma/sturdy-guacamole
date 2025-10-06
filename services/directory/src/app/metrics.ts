@@ -10,7 +10,7 @@ export const registerMetrics = (app: FastifyInstance) => {
   });
 
   app.addHook('onResponse', async (request, reply) => {
-    const route = request.routerPath ?? request.url;
+    const route = (request as { routerPath?: string }).routerPath ?? request.url;
     requestTotalCounter.labels({ route, method: request.method }).inc();
 
     if (request.metrics?.startTime) {

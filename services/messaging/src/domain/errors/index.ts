@@ -133,6 +133,13 @@ export class MessageTooLargeError extends MessagingError {
   }
 }
 
+export class PayloadValidationError extends MessagingError {
+  constructor(reason: string, statusCode = 400) {
+    super(`Invalid payload: ${reason}`, 'PAYLOAD_INVALID', statusCode);
+    this.name = 'PayloadValidationError';
+  }
+}
+
 /**
  * Duplicate message (idempotency check failed)
  */

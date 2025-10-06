@@ -1,0 +1,323 @@
+name: Nightly Smoke Tests
+
+on:
+  schedule:
+    # Run at 2 AM UTC every night
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Manual trigger
+    inputs:
+      target_rps:
+        description: 'Target RPS for load test'
+        required: false
+        default: '1000'
+      soak_duration:
+        description: 'Soak test duration (minutes)'
+        required: false
+        default: '15'
+
+permissions:
+  contents: write
+  security-events: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  smoke-tests:
+    name: Smoke Tests (Staging)
+    runs-on: ubuntu-latest
+    
+    services:
+      messaging-db:
+        image: postgres:16
+        env:
+          POSTGRES_DB: messaging
+          POSTGRES_USER: messaging
+          POSTGRES_PASSWORD: messaging
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U messaging -d messaging"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: s3
+          DEBUG: 0
+          DATA_DIR: /tmp/localstack/data
+          DOCKER_HOST: unix:///var/run/docker.sock
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "awslocal s3 ls || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Run database migrations
+        run: |
+          for i in $(seq 1 10); do
+            PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -c '\q' && break
+            sleep 5
+          done
+          
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/src/adapters/postgres/migrations/001_initial_schema.sql
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/src/adapters/postgres/migrations/20250203_message_outbox.sql
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/src/adapters/postgres/migrations/20250204_relax_dlq_uuid_constraint.sql
+          PGPASSWORD=messaging psql -h localhost -p 5433 -U messaging -d messaging -f services/messaging/src/adapters/postgres/migrations/20250205_stage_3a_conversations_crud.sql
+
+      - name: Setup LocalStack S3
+        run: |
+          pip install awscli-local
+          awslocal s3 mb s3://test-bucket --endpoint-url=http://localhost:4566 || true
+
+      - name: Start services
+        run: |
+          echo "🚀 Starting services in background..."
+          
+          # Start Auth service
+          HTTP_PORT=3000 pnpm exec tsx services/auth/src/app/server.ts > /tmp/auth.log 2>&1 &
+          AUTH_PID=$!
+          echo "AUTH_PID=$AUTH_PID" >> $GITHUB_ENV
+          
+          # Start Directory service
+          HTTP_PORT=4000 HASHED_EMAIL_LOOKUP_ENABLED=true STORAGE_DRIVER=memory pnpm exec tsx services/directory/src/app/server.ts > /tmp/directory.log 2>&1 &
+          DIR_PID=$!
+          echo "DIR_PID=$DIR_PID" >> $GITHUB_ENV
+          
+          # Start Messaging service
+          DATABASE_URL=postgresql://messaging:messaging@localhost:5433/messaging \
+          REDIS_URL=redis://localhost:6379 \
+          HTTP_PORT=5000 \
+          DISPATCHER_ENABLED=false \
+          CONSUMER_ENABLED=false \
+          pnpm exec tsx services/messaging/src/app/server.ts > /tmp/messaging.log 2>&1 &
+          MSG_PID=$!
+          echo "MSG_PID=$MSG_PID" >> $GITHUB_ENV
+          
+          # Wait for services to be ready
+          sleep 10
+          
+          # Health checks
+          curl -f http://localhost:3000/health || (cat /tmp/auth.log && exit 1)
+          curl -f http://localhost:4000/v1/directory/health || (cat /tmp/directory.log && exit 1)
+          curl -f http://localhost:5000/health || (cat /tmp/messaging.log && exit 1)
+          
+          echo "✅ All services healthy"
+
+      - name: Run Load Test (Storage - 1000 RPS)
+        run: |
+          TARGET_RPS=${{ github.event.inputs.target_rps || '1000' }}
+          echo "🔥 Running load test: ${TARGET_RPS} RPS for 2 minutes with 1KB payload..."
+          
+          k6 run --out json=/tmp/load-1kb.json scripts/k6/storage-rps.js \
+            --env TARGET_RPS=${TARGET_RPS} \
+            --env DURATION=2m \
+            --env PAYLOAD_SIZE=1024 \
+            --summary-export=/tmp/load-1kb-summary.json || true
+          
+          # Check results
+          if [ -f /tmp/load-1kb-summary.json ]; then
+            cat /tmp/load-1kb-summary.json
+            ERROR_RATE=$(jq -r '.metrics.http_req_failed.values.rate' /tmp/load-1kb-summary.json)
+            P95=$(jq -r '.metrics.http_req_duration.values."p(95)"' /tmp/load-1kb-summary.json)
+            
+            echo "📊 Load Test Results (1KB):"
+            echo "- Error Rate: $ERROR_RATE"
+            echo "- P95 Latency: ${P95}ms"
+            
+            # SLO check: <2% error rate, p95 <1500ms
+            if (( $(echo "$ERROR_RATE > 0.02" | bc -l) )); then
+              echo "❌ ERROR RATE TOO HIGH: $ERROR_RATE > 2%"
+              exit 1
+            fi
+            
+            if (( $(echo "$P95 > 1500" | bc -l) )); then
+              echo "❌ P95 TOO HIGH: ${P95}ms > 1500ms"
+              exit 1
+            fi
+            
+            echo "✅ Load test passed SLOs"
+          fi
+
+      - name: Run Load Test (Storage - 64 KiB)
+        run: |
+          TARGET_RPS=${{ github.event.inputs.target_rps || '1000' }}
+          echo "🔥 Running load test: ${TARGET_RPS} RPS for 2 minutes with 64KB payload..."
+          
+          k6 run --out json=/tmp/load-64kb.json scripts/k6/storage-rps.js \
+            --env TARGET_RPS=${TARGET_RPS} \
+            --env DURATION=2m \
+            --env PAYLOAD_SIZE=65536 \
+            --summary-export=/tmp/load-64kb-summary.json || true
+          
+          if [ -f /tmp/load-64kb-summary.json ]; then
+            cat /tmp/load-64kb-summary.json
+            ERROR_RATE=$(jq -r '.metrics.http_req_failed.values.rate' /tmp/load-64kb-summary.json)
+            P95=$(jq -r '.metrics.http_req_duration.values."p(95)"' /tmp/load-64kb-summary.json)
+            
+            echo "📊 Load Test Results (64KB):"
+            echo "- Error Rate: $ERROR_RATE"
+            echo "- P95 Latency: ${P95}ms"
+            
+            if (( $(echo "$ERROR_RATE > 0.02" | bc -l) )); then
+              echo "❌ ERROR RATE TOO HIGH: $ERROR_RATE > 2%"
+              exit 1
+            fi
+            
+            if (( $(echo "$P95 > 1500" | bc -l) )); then
+              echo "❌ P95 TOO HIGH: ${P95}ms > 1500ms"
+              exit 1
+            fi
+            
+            echo "✅ Load test passed SLOs"
+          fi
+
+      - name: Run Soak Test (15 minute sustained load)
+        run: |
+          SOAK_DURATION=${{ github.event.inputs.soak_duration || '15' }}
+          echo "⏱️  Running soak test: 500 RPS for ${SOAK_DURATION} minutes..."
+          
+          k6 run --out json=/tmp/soak.json scripts/k6/storage-rps.js \
+            --env TARGET_RPS=500 \
+            --env DURATION=${SOAK_DURATION}m \
+            --env PAYLOAD_SIZE=1024 \
+            --summary-export=/tmp/soak-summary.json || true
+          
+          if [ -f /tmp/soak-summary.json ]; then
+            cat /tmp/soak-summary.json
+            ERROR_RATE=$(jq -r '.metrics.http_req_failed.values.rate' /tmp/soak-summary.json)
+            P95=$(jq -r '.metrics.http_req_duration.values."p(95)"' /tmp/soak-summary.json)
+            P99=$(jq -r '.metrics.http_req_duration.values."p(99)"' /tmp/soak-summary.json)
+            
+            echo "📊 Soak Test Results (${SOAK_DURATION}m):"
+            echo "- Error Rate: $ERROR_RATE"
+            echo "- P95 Latency: ${P95}ms"
+            echo "- P99 Latency: ${P99}ms"
+            
+            if (( $(echo "$ERROR_RATE > 0.02" | bc -l) )); then
+              echo "❌ SOAK TEST FAILED: Error rate $ERROR_RATE > 2%"
+              exit 1
+            fi
+            
+            if (( $(echo "$P95 > 1500" | bc -l) )); then
+              echo "❌ SOAK TEST FAILED: P95 ${P95}ms > 1500ms"
+              exit 1
+            fi
+            
+            echo "✅ Soak test passed SLOs"
+          fi
+
+      - name: Stop services
+        if: always()
+        run: |
+          kill $AUTH_PID || true
+          kill $DIR_PID || true
+          kill $MSG_PID || true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-test-results
+          path: /tmp/*.json
+          retention-days: 7
+
+      - name: Upload service logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: /tmp/*.log
+          retention-days: 3
+
+  promote-to-main:
+    name: Promote Staging → Main
+    runs-on: ubuntu-latest
+    needs: smoke-tests
+    if: success()
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Promote staging to main
+        run: |
+          git checkout main
+          git merge --ff-only origin/staging || {
+            echo "❌ Cannot fast-forward main from staging"
+            echo "This likely means main has diverged from staging"
+            echo "Please manually review and merge"
+            exit 1
+          }
+          git push origin main
+
+      - name: Create release tag
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          TAG="release/$TIMESTAMP"
+          git tag -a "$TAG" -m "Nightly release: $TIMESTAMP (staging → main)"
+          git push origin "$TAG"
+          echo "✅ Created release tag: $TAG"
+
+  notify-failure:
+    name: Notify Failure
+    runs-on: ubuntu-latest
+    needs: smoke-tests
+    if: failure()
+    
+    steps:
+      - name: Report failure
+        run: |
+          echo "❌ Nightly smoke tests failed - staging NOT promoted to main"
+          echo "Review the test results and service logs artifacts for details"
+          exit 1
+

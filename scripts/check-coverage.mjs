@@ -38,6 +38,16 @@ const groups = [
     minimum: { lines: 0.9, statements: 0.9, branches: 0.85, functions: 0.9 }
   },
   {
+    name: 'packages/storage/errors',
+    include: [/^packages\/storage\/src\/errors\//],
+    minimum: { lines: 0.9, statements: 0.9, branches: 0.9, functions: 0.9 }
+  },
+  {
+    name: 'packages/storage/observability',
+    include: [/^packages\/storage\/src\/observability\//],
+    minimum: { lines: 0.9, statements: 0.9, branches: 0.9, functions: 0.9 }
+  },
+  {
     name: 'global',
     include: [/^services\/[^/]+\/src\//, /^packages\/[^/]+\/src\//, /^apps\/[^/]+\/src\//],
     exclude: [/\/src\/tests\//, /^scripts\//],

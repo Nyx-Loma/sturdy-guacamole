@@ -179,4 +179,3 @@ const upsertMessageIdempotency = (
     [record.senderId, record.key, record.id, record.createdAt]
   );
 };
-

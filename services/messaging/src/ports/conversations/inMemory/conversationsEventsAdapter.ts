@@ -24,8 +24,12 @@ export const createInMemoryConversationsEventsAdapter = (
       conversation.updatedAt = update.occurredAt;
     },
 
-    async publish() {
-      return;
+    async publish(event) {
+      if (event.kind === 'MessageSent') {
+        const conversation = getConversationOrThrow(conversations, event.conversationId);
+        conversation.lastMessageId = event.messageId;
+        conversation.updatedAt = new Date().toISOString();
+      }
     }
   };
 };

@@ -5,7 +5,8 @@
     "outDir": "dist",
     "composite": true,
     "declaration": true,
-    "emitDeclarationOnly": true
+    "emitDeclarationOnly": false,
+    "moduleResolution": "bundler"
   },
   "include": ["src/**/*.ts"],
   "exclude": ["**/__tests__/**", "**/tests/**", "dist", "node_modules"],

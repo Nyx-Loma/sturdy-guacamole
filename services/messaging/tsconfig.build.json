@@ -1,6 +1,12 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["__tests__", "**/*.test.ts", "**/__mocks__"]
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": false,
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "exclude": ["**/*.test.ts", "**/__tests__/**", "**/tests/**", "**/__mocks__/**"]
 }
 
 

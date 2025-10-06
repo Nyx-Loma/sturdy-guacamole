@@ -1,0 +1,10 @@
+{
+  "env": {
+    "es6": true
+  },
+  "globals": {
+    "__ENV": "readonly",
+    "__VU": "readonly",
+    "__ITER": "readonly"
+  }
+}

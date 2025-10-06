@@ -1,4 +1,5 @@
-export { WebSocketHub } from './websocketHub';
+// Use explicit .js extensions for ESM runtime resolution
+export { WebSocketHub } from './websocketHub.js';
 export type {
   ClientId,
   RegisterResult,
@@ -9,11 +10,11 @@ export type {
   PersistResumeStateParams,
   WebSocketHubOptions,
   ResumeResult
-} from './types';
-export type { MessageEnvelope } from './schemas';
-export { createInMemoryResumeStore, createRedisResumeStore } from './resumeStore';
-export { createQueueConsumer, createRedisStreamQueue } from './queue';
-export type { Queue, QueueMessage, QueueConsumerOptions, RedisQueueOptions } from './queue';
-export { persistConnectionSnapshot } from './websocketHub/snapshot';
-export { redactToken, hashToken, logWithContext, sanitizeError } from './logging';
+} from './types.js';
+export type { MessageEnvelope } from './schemas.js';
+export { createInMemoryResumeStore, createRedisResumeStore } from './resumeStore.js';
+export { createQueueConsumer, createRedisStreamQueue } from './queue.js';
+export type { Queue, QueueMessage, QueueConsumerOptions, RedisQueueOptions } from './queue.js';
+export { persistConnectionSnapshot } from './websocketHub/snapshot.js';
+export { redactToken, hashToken, logWithContext, sanitizeError } from './logging.js';
 

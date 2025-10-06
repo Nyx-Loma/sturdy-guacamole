@@ -22,14 +22,21 @@ export const createPostgresDirectoryRepository = (options: PostgresDirectoryRepo
 
   const pool = new Pool({ connectionString });
 
-  const mapRow = (row: DirectoryRow): DirectoryEntry => ({
-    accountId: row.account_id,
-    displayName: row.display_name ?? undefined,
-    publicKey: row.public_key,
-    deviceCount: Number(row.device_count),
-    updatedAt: new Date(row.updated_at),
-    hashedEmail: row.hashed_email ?? undefined
-  });
+  const mapRow = (row: DirectoryRow): DirectoryEntry => {
+    const entry: DirectoryEntry = {
+      accountId: row.account_id,
+      publicKey: row.public_key,
+      deviceCount: Number(row.device_count),
+      updatedAt: new Date(row.updated_at),
+    };
+    if (row.display_name !== null) {
+      entry.displayName = row.display_name;
+    }
+    if (row.hashed_email !== null) {
+      entry.hashedEmail = row.hashed_email;
+    }
+    return entry;
+  };
 
   return {
     async findByAccountId(accountId: string): Promise<DirectoryEntry | null> {

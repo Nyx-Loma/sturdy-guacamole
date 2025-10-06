@@ -15,6 +15,24 @@ vi.mock('fastify', () => ({ default: fastifyFactoryMock }));
 
 const registerRoutesMock = vi.fn();
 vi.mock('../../app/routes', () => ({ registerRoutes: registerRoutesMock }));
+vi.mock('@fastify/swagger', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('@fastify/swagger-ui', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('@sanctum/crypto', () => ({
+  createCryptoProvider: vi.fn(() => ({
+    decrypt: vi.fn(),
+    encrypt: vi.fn(),
+    generateKey: vi.fn()
+  })),
+  brandCipherText: vi.fn((value: unknown) => value),
+  brandNonce: vi.fn((value: unknown) => value),
+  brandSymmetricKey: vi.fn((value: unknown) => value)
+}));
+vi.mock('@sanctum/crypto/backup/derive', () => ({
+  deriveMaterial: vi.fn(async () => ({
+    masterKey: new Uint8Array(32),
+    clientKey: new Uint8Array(32)
+  }))
+}));
 
 describe('createServer', () => {
   const config = {

@@ -77,7 +77,7 @@ export const createServer = async (config: Config, deps: BootstrapDeps = {}): Pr
   const hub = hubFactory({
     heartbeatIntervalMs: config.WS_HEARTBEAT_INTERVAL_MS,
     logger: fastify.log,
-    authenticate: async ({ requestHeaders, clientId }) => {
+    authenticate: async ({ requestHeaders, clientId }: { requestHeaders: Record<string, string | string[] | undefined>; clientId: string }) => {
       const header = requestHeaders.authorization ?? requestHeaders.Authorization;
       const token = Array.isArray(header) ? header[0] : header;
       if (!token || typeof token !== 'string') {
@@ -99,7 +99,7 @@ export const createServer = async (config: Config, deps: BootstrapDeps = {}): Pr
     persistResumeState: resumeStore.persist,
     dropResumeState: resumeStore.drop,
     metricsRegistry: undefined,
-    onMetrics: (event) => {
+    onMetrics: (event: unknown) => {
       fastify.log.debug({ event }, 'ws_metric');
     },
     rateLimiterFactory: () => connectionLimiter,
@@ -126,7 +126,7 @@ export const createServer = async (config: Config, deps: BootstrapDeps = {}): Pr
     await queueConsumer({
       hub,
       queue,
-      onError: (err) => fastify.log.error({ err }, 'queue consumer error')
+      onError: (err: unknown) => fastify.log.error({ err }, 'queue consumer error')
     });
     queueClose = queue.close;
   }

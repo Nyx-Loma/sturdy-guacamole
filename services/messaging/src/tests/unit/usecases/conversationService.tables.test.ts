@@ -244,4 +244,43 @@ describe('conversationService.markRead/softDelete', () => {
   });
 });
 
+describe('conversationService.listParticipants', () => {
+  test('returns sorted participants with pagination', async () => {
+    const { service, read } = createDeps();
+    read.findById = vi.fn(async () => baseConversation({
+      participants: [
+        { userId: 'c', role: 'member', joinedAt: '2025-09-01T00:00:05.000Z', leftAt: undefined, lastReadAt: undefined, muted: false, mutedUntil: undefined },
+        { userId: 'a', role: 'member', joinedAt: '2025-09-01T00:00:01.000Z', leftAt: undefined, lastReadAt: undefined, muted: false, mutedUntil: undefined },
+        { userId: 'b', role: 'member', joinedAt: '2025-09-01T00:00:03.000Z', leftAt: undefined, lastReadAt: undefined, muted: false, mutedUntil: undefined }
+      ]
+    }));
+
+    const page = await service.listParticipants('conversation-id', { limit: 2 });
+    expect(page.items.map(p => p.userId)).toEqual(['a', 'b']);
+    expect(page.nextCursor).toBe('2025-09-01T00:00:03.000Z');
+  });
+
+  test('applies cursor to resume listing', async () => {
+    const { service, read } = createDeps();
+    read.findById = vi.fn(async () => baseConversation({
+      participants: [
+        { userId: 'a', role: 'member', joinedAt: '2025-09-01T00:00:01.000Z', leftAt: undefined, lastReadAt: undefined, muted: false, mutedUntil: undefined },
+        { userId: 'b', role: 'member', joinedAt: '2025-09-01T00:00:03.000Z', leftAt: undefined, lastReadAt: undefined, muted: false, mutedUntil: undefined },
+        { userId: 'c', role: 'member', joinedAt: '2025-09-01T00:00:05.000Z', leftAt: undefined, lastReadAt: undefined, muted: false, mutedUntil: undefined }
+      ]
+    }));
+
+    const page = await service.listParticipants('conversation-id', { cursor: '2025-09-01T00:00:03.000Z' });
+    expect(page.items.map(p => p.userId)).toEqual(['c']);
+    expect(page.nextCursor).toBeUndefined();
+  });
+
+  test('throws when conversation missing', async () => {
+    const { service, read } = createDeps();
+    read.findById = vi.fn(async () => null);
+
+    await expect(service.listParticipants('missing-id')).rejects.toThrow('Conversation not found');
+  });
+});
+
 

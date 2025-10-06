@@ -1,0 +1,43 @@
+{
+  "title": "Messaging Consumer",
+  "uid": "messaging-consumer",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Broadcasts (rps)",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "sum(rate(messaging_consumer_delivered_total[5m]))", "legendFormat": "broadcast" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate limit exceeded (rps)",
+      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "sum(rate(messaging_rate_limit_exceeded_total[5m]))", "legendFormat": "429" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "WS queue depth",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "avg(ws_queue_depth)", "legendFormat": "avg depth" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "WS drops (rps)",
+      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "sum(rate(ws_dropped_total[5m]))", "legendFormat": "drops" }
+      ]
+    }
+  ]
+}
+
+

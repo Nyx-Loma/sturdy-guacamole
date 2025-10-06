@@ -1,4 +1,4 @@
-import type { MessageEnvelope } from './schemas';
+import type { MessageEnvelope } from './schemas.js';
 import type { WebSocketHub } from './websocketHub';
 import Redis from 'ioredis';
 
